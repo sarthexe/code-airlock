@@ -225,7 +225,7 @@ To ensure your coding agent actually leverages the airlock tools instead of raw 
 | `build_benchmarks.py` | 239 | Deterministic 2,000-row generator (`seed=42`) for the four `benchmarks/` splits |
 | `test_proxy.py` | 84 | End-to-end proxy tests (11-entity zero-leak check, 2-char SSE split rehydration, C++ syntax) |
 | `test_mcp.py` | 66 | MCP tool verification (`.env` $\rightarrow$ `config.json` zero-leak file migration & vault safety) |
-| `export_hf.py` | 62 | Publishes all 4 splits plus the auto-generated dataset card to Hugging Face |
+| `export_hf.py` | 87 | Publishes all 4 splits plus the auto-generated dataset card to Hugging Face |
 | `BENCHMARK_RESULTS.md` | — | Generated metrics-only scorecard (safe to commit) |
 | `benchmarks/*.jsonl` | — | Generated 4-split fixtures (git-ignored) |
 | `dev_benchmark.jsonl` | — | Legacy 56-row suite (git-ignored, superseded) |
