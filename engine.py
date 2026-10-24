@@ -51,7 +51,7 @@ def is_valid_phone(phone: str) -> bool:
 # Pre-compiled Stage 1 Regexes (8 Structured Entity Types)
 EMAIL_RE = re.compile(r"\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b")
 API_KEY_RE = re.compile(
-    r"\b(?:sk-[a-zA-Z0-9]{20,}|sk-ant-[a-zA-Z0-9\-_]{20,}|AKIA[0-9A-Z]{16}|"
+    r"\b(?:sk-(?:proj-|ant-|svcacct-|admin-)?[a-zA-Z0-9\-_]{20,}|AKIA[0-9A-Z]{16}|"
     r"(?:ghp|gho|ghu|ghs|ghr)_[a-zA-Z0-9]{36}|github_pat_[a-zA-Z0-9_]{22,}|"
     r"AIza[0-9A-Za-z\-_]{35}|xox[baprs]-[0-9a-zA-Z\-]{10,})\b"
 )
