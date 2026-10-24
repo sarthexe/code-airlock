@@ -63,5 +63,9 @@ def airlock_vault_status() -> dict:
     return {"tokens": sorted(VAULT.vault), "counts": counts, "total": len(VAULT.vault)}
 
 
-if __name__ == "__main__":
+def main() -> None:
     mcp.run()
+
+
+if __name__ == "__main__":
+    main()

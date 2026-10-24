@@ -5,3 +5,6 @@ __pycache__/
 .env
 secrets.out.json
 *.log
+dist/
+build/
+*.egg-info/

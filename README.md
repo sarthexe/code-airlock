@@ -75,48 +75,107 @@ Evaluated on **285 developer prompts** (sampled from `CodeAlpaca_20K` and `OpenC
 
 ---
 
-## 🚀 Quickstart
+## 🚀 Quickstart & MCP Setup
 
-### 1. Installation
+### Option 1: Zero-Install via `uvx` (Recommended)
+
+No cloning, manual virtual environments, or path debugging. Anyone with Astral's [`uv`](https://github.com/astral-sh/uv) can run `pii-airlock` directly from GitHub (or PyPI once published):
+
+#### 🤖 Claude Code (CLI)
 ```bash
-git clone [https://github.com/sarthexe/pii-airlock.git](https://github.com/sarthexe/pii-airlock.git)
-cd pii-airlock
-pip install -r requirements.txt
+claude mcp add pii-airlock -- uvx --from git+https://github.com/sarthexe/pii-airlock pii-airlock
 ```
 
-### 2. Mode A: MCP Server for Coding Harnesses (OpenCode, Cursor, Claude Code)
-Expose `airlock_dehydrate`, `airlock_rehydrate`, `airlock_read_file`, `airlock_write_file`, and `airlock_vault_status` over `stdio` so your coding agent can inspect `.env` files and generate configs without ever sending raw secrets to the cloud LLM:
-
+#### 💻 OpenCode (`opencode.json`)
 ```json
 {
+  "$schema": "https://opencode.ai/config.json",
   "mcp": {
     "pii-airlock": {
       "type": "local",
-      "command": ["python", "/absolute/path/to/pii-airlock/mcp_server.py"]
+      "command": ["uvx", "--from", "git+https://github.com/sarthexe/pii-airlock", "pii-airlock"],
+      "enabled": true
     }
   }
 }
 ```
-Or via Claude Code CLI:
-```bash
-claude mcp add pii-airlock -- python /absolute/path/to/pii-airlock/mcp_server.py
+
+#### 🖱️ Cursor (`.cursor/mcp.json`)
+```json
+{
+  "mcpServers": {
+    "pii-airlock": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/sarthexe/pii-airlock", "pii-airlock"]
+    }
+  }
+}
 ```
 
-### 3. Mode B: OpenAI-Compatible Reverse Proxy (`/v1/chat/completions`)
+#### 🖥️ Claude Desktop (`claude_desktop_config.json`) & Windsurf (`~/.codeium/windsurf/mcp_config.json`)
+```json
+{
+  "mcpServers": {
+    "pii-airlock": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/sarthexe/pii-airlock", "pii-airlock"]
+    }
+  }
+}
+```
+
+*(Once published to PyPI, the args simplify to just `["uvx", "pii-airlock"]`)*.
+
+---
+
+### Option 2: Local Development / Manual Git Clone
+
 ```bash
-# Run with built-in zero-leak mock upstream (offline testing)
+git clone https://github.com/sarthexe/pii-airlock.git
+cd pii-airlock
+pip install -r requirements.txt
+pip install -e .
+
+# Test tools locally over stdio
+python mcp_server.py
+```
+
+---
+
+### Option 3: OpenAI-Compatible Reverse Proxy (`/v1/chat/completions`)
+
+Run as a transparent privacy gateway intercepting HTTP requests:
+
+```bash
+# Run with built-in zero-leak mock upstream (offline validation)
 uvicorn proxy:app --port 8000
 
-# Or point to a live upstream provider (OpenAI / Ollama / OpenRouter)
-export AIRLOCK_UPSTREAM_URL="[https://api.openai.com](https://api.openai.com)"
+# Or point to a live upstream provider (OpenAI, Ollama, OpenRouter, vLLM)
+export AIRLOCK_UPSTREAM_URL="https://api.openai.com"
 uvicorn proxy:app --port 8000
 ```
 
-### 4. Reproduce Benchmarks & Tests
-```bash
-python benchmark.py
-pytest -v
+---
+
+## 🧠 Guiding Your Agent (`.cursorrules` / System Prompt)
+
+To ensure your coding agent actually leverages the airlock tools instead of raw file reads, include this rule in your `.cursorrules`, `CLAUDE.md`, or system instructions:
+
+```markdown
+# PII-Airlock Agent Guardrails
+1. When reading `.env`, configuration, or log files, NEVER use standard read tools. ALWAYS call `airlock_read_file(path)` so secrets and PII are redacted into `<ENTITY_n>` tokens before hitting context.
+2. When creating or editing configs, write the `<ENTITY_n>` tokens directly and call `airlock_write_file(path, content)`. The airlock will rehydrate the real secrets locally on disk without ever sending them through the LLM.
+3. Call `airlock_vault_status()` to inspect active pseudonymized tokens safely (never returns plaintext values).
 ```
+
+---
+
+## 📦 PyPI Publishing (Trusted Publishing via GitHub Actions)
+
+This repository includes a turnkey GitHub Actions workflow (`.github/workflows/publish.yml`) configured for **PyPI Trusted Publishing (OIDC)**:
+1. Create a project named `pii-airlock` on [pypi.org](https://pypi.org/manage/account/publishing/).
+2. Add a **Trusted Publisher** pointing to `sarthexe/pii-airlock` and workflow `publish.yml`.
+3. Create a GitHub Release on this repository — the workflow will build the wheel and publish automatically with zero API tokens or manual steps.
 
 ---
 
@@ -127,7 +186,7 @@ pytest -v
 | `engine.py` | 183 | Stage 1 regex/checksum validators + Stage 2 GLiNER-small + `TECH_ALLOWLIST` + span merger |
 | `sanitizer.py` | 93 | Session-consistent `VaultSession` dehydrator + stateful `StreamRehydrator` SSE parser |
 | `proxy.py` | 143 | FastAPI `/v1/chat/completions` gateway with SSE streaming rehydration & telemetry headers |
-| `mcp_server.py` | 67 | FastMCP `stdio` server exposing 5 zero-leak text and file tools for agentic harnesses |
+| `mcp_server.py` | 71 | FastMCP `stdio` server exposing 5 zero-leak text and file tools for agentic harnesses |
 | `benchmark.py` | 132 | Strict/Partial overlap evaluator, p50/p95 latency timer, and hard-negative verifier |
 | `test_proxy.py` | 85 | End-to-end proxy tests (11-entity zero-leak check, 2-char SSE split rehydration, C++ syntax) |
 | `test_mcp.py` | 66 | MCP tool verification (`.env` $\rightarrow$ `config.json` zero-leak file migration & vault safety) |

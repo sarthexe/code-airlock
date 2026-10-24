@@ -1,0 +1,14 @@
+# PII-Airlock Agent Guardrails
+
+You have access to the `pii-airlock` MCP server tools. Protect sensitive data by adhering to the following rules:
+
+1. **Reading Sensitive Files:**
+   - Whenever inspecting `.env`, configuration files, credential dumps, or log files, NEVER use the standard read tool.
+   - ALWAYS call `airlock_read_file(path)` instead. This sanitizes keys, tokens, and PII into session tokens (e.g. `<API_KEY_1>`, `<EMAIL_1>`) before the text enters your context.
+
+2. **Writing Sensitive Files:**
+   - When generating or updating configs, `.env` files, or secrets, write the `<ENTITY_n>` tokens directly into the content and call `airlock_write_file(path, content)`.
+   - The airlock will rehydrate the real secrets on disk without them ever passing through cloud LLM completions.
+
+3. **Session Vault Metadata:**
+   - To check active pseudonymized entities in the current session, call `airlock_vault_status()`. It returns only token placeholders and entity counts, never plaintext secrets.
