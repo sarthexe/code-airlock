@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pii-airlock"
+version = "0.1.0"
+description = "Low-latency OpenAI-compatible PII Redaction & Rehydration Gateway"
+authors = [{ name = "pii-airlock team" }]
+dependencies = [
+    "gliner>=0.2.13",
+    "torch>=2.0.0",
+    "numpy>=1.24.0",
+    "mcp>=1.0,<2",
+    "fastapi>=0.110",
+    "uvicorn>=0.27",
+    "httpx>=0.27",
+    "pytest>=8.0",
+]
+readme = "README.md"
+requires-python = ">=3.10"
