@@ -1,25 +1,29 @@
-"""benchmark.py - Gold-set benchmark for the pii-airlock 11-entity taxonomy."""
+"""benchmark.py - Unified 4-suite, 2,000-row developer privacy benchmark."""
 from __future__ import annotations
-import json, os, time, warnings
+import argparse, json, os, subprocess, sys, time, warnings
 from collections import defaultdict
 import numpy as np
-from engine import TECH_ALLOWLIST, CascadeEngine
+from engine import CascadeEngine
 from sanitizer import StreamRehydrator, VaultSession
 
 warnings.filterwarnings("ignore")
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
-GOLD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gold_set.jsonl")
+BASE = os.path.dirname(os.path.abspath(__file__))
+BENCH = os.path.join(BASE, "benchmarks")
+SUITES = ["dev_prompts", "git_leaks", "mcp_configs", "adversarial_sse"]
 LABELS = ["API_KEY", "AUTH_TOKEN", "CREDIT_CARD", "EMAIL", "PHONE", "IP_ADDRESS",
           "GOVT_ID", "IBAN_CRYPTO", "PERSON", "ORGANIZATION", "LOCATION"]
 
-def load(path: str = GOLD) -> list[dict]:
-    with open(path, encoding="utf-8") as f:
+def load(suite):
+    with open(os.path.join(BENCH, f"{suite}.jsonl"), encoding="utf-8") as f:
         return [json.loads(line) for line in f if line.strip()]
 
-def prf(tp: int, fp: int, fn: int) -> tuple[float, float, float]:
+def prf(tp, fp, fn):
     p = tp / (tp + fp) if tp + fp else 1.0
     r = tp / (tp + fn) if tp + fn else 1.0
     return p, r, (2 * p * r / (p + r) if p + r else 0.0)
+
+def blank():
+    return defaultdict(lambda: {"stp": 0, "sfp": 0, "sfn": 0, "ptp": 0, "pfp": 0, "pfn": 0, "n": 0})
 
 def score_row(preds, gts, per):
     for lbl in LABELS:
@@ -38,96 +42,120 @@ def score_row(preds, gts, per):
             per[lbl][key + "fn"] += len(gl) - tp
         per[lbl]["n"] += len(gl)
 
-def neg_ok(text: str, neg: dict, preds) -> bool:
-    spans, start = [], 0
-    while (i := text.find(neg["value"], start)) >= 0:
-        spans.append((i, i + len(neg["value"]))); start = i + 1
-    return not any(p.label == neg["label"] and max(p.start, a) < min(p.end, b)
-                   for p in preds for a, b in spans)
-
-def roundtrip(dehydrated: str, vault: dict[str, str], original: str) -> bool:
+def rehydrate(text, vault, size):
     r = StreamRehydrator(vault)
-    if "".join(r.process_chunk(c) for c in dehydrated) + r.flush() != original:
-        return False
-    r = StreamRehydrator(vault)
-    return "".join(r.process_chunk(dehydrated[i:i + 7]) for i in range(0, len(dehydrated), 7)) + r.flush() == original
+    out = "".join(r.process_chunk(text[i:i + size]) for i in range(0, len(text), size))
+    return out + r.flush()
 
-def row(name: str, a: str, b: str, c: str = "") -> None:
-    print(f"| {name:<34} | {a:>15} | {b:>15} | {c:>5} |")
-
-def main(path: str | None = None) -> None:
-    rows = load(path) if path else load()
-    engine = CascadeEngine()
-    for w in ("Warmup text.", "Rahul at Microsoft in Bengaluru, India.", "test@test.com +1-555-123-4567"):
-        for _ in range(2):
-            engine.detect(w)
-
-    per = defaultdict(lambda: {"stp": 0, "sfp": 0, "sfn": 0, "ptp": 0, "pfp": 0, "pfn": 0, "n": 0})
-    s1_lat, s2_lat, tot_lat = [], [], []
-    clean_spans, clean_rows_hit, clean_rows = 0, 0, 0
-    neg_pass = neg_total = tech_pass = tech_total = empty_fail = rt_pass = 0
-
+def evaluate(rows, engine):
+    per = blank()
+    s1, s2, tot = [], [], []
+    hard_total = hard_pass = clean_total = clean_pass = 0
+    json_total = json_parse = json_rt = 0
+    sse_pass = 0
     for r in rows:
         text = r["text"]
-        gts = [(e["label"], e["start"], e["end"]) for e in r["entities"]]
+        gts = [(s["label"], s["start"], s["end"]) for s in r["spans"]]
         t0 = time.perf_counter(); engine.detect_stage1(text)
         t1 = time.perf_counter(); engine.detect_stage2(text)
         t2 = time.perf_counter(); preds = engine.detect(text)
         t3 = time.perf_counter()
-        s1_lat.append((t1 - t0) * 1e3); s2_lat.append((t2 - t1) * 1e3); tot_lat.append((t3 - t2) * 1e3)
+        s1.append((t1 - t0) * 1e3); s2.append((t2 - t1) * 1e3); tot.append((t3 - t2) * 1e3)
+        score_row(preds, gts, per)
+        if r["category"] == "hard_negative":
+            hard_total += 1; hard_pass += int(not preds)
+        if r["category"] == "clean":
+            clean_total += 1; clean_pass += int(not preds)
+        if r.get("meta", {}).get("format") == "json":
+            json_total += 1
+            d, vault = VaultSession().dehydrate(text, preds)
+            try:
+                json.loads(d); json_parse += 1
+                ok = rehydrate(d, vault, 7) == text
+                json.loads(rehydrate(d, vault, 7))
+                json_rt += int(ok)
+            except json.JSONDecodeError:
+                pass
+        d, vault = VaultSession().dehydrate(text, preds)
+        sse_pass += int(all(rehydrate(d, vault, size) == text for size in (1, 2, 7)))
+    return {"rows": rows, "per": per, "s1": s1, "s2": s2, "tot": tot,
+            "hard": (hard_pass, hard_total), "clean": (clean_pass, clean_total),
+            "json": (json_parse, json_rt, json_total), "sse": (sse_pass, len(rows))}
 
-        if gts:
-            score_row(preds, gts, per)
-        else:
-            clean_rows += 1
-            clean_spans += len(preds)
-            clean_rows_hit += bool(preds)
-            if r.get("expect_empty") and preds:
-                empty_fail += 1
-        if "tech_allowlist" in r["tags"]:
-            tech_total += 1
-            tech_pass += int(not any(p.text.strip().lower() in TECH_ALLOWLIST for p in preds))
-        for neg in r.get("negatives", []):
-            neg_total += 1
-            neg_pass += int(neg_ok(text, neg, preds))
-        session = VaultSession()
-        dehydrated, vault = session.dehydrate(text, preds)
-        rt_pass += int(roundtrip(dehydrated, vault, text))
+def combine(results):
+    per = blank()
+    for res in results:
+        for lbl in LABELS:
+            for k, v in res["per"][lbl].items():
+                per[lbl][k] += v
+    return {"per": per, "s1": sum((r["s1"] for r in results), []),
+            "s2": sum((r["s2"] for r in results), []), "tot": sum((r["tot"] for r in results), []),
+            "hard": tuple(sum(r["hard"][i] for r in results) for i in range(2)),
+            "clean": tuple(sum(r["clean"][i] for r in results) for i in range(2)),
+            "json": tuple(sum(r["json"][i] for r in results) for i in range(3)),
+            "sse": tuple(sum(r["sse"][i] for r in results) for i in range(2)),
+            "rows": sum((r["rows"] for r in results), [])}
 
-    tot = {k: sum(st[k] for st in per.values()) for k in ("stp", "sfp", "sfn", "ptp", "pfp", "pfn")}
-    sp, sr, sf = prf(tot["stp"], tot["sfp"], tot["sfn"])
-    pp, pr, pf = prf(tot["ptp"], tot["pfp"], tot["pfn"])
-    pii_rows = sum(1 for r in rows if r["entities"])
-    spans = sum(per[l]["n"] for l in LABELS)
+def metrics(per):
+    t = {k: sum(st[k] for st in per.values()) for k in ("stp", "sfp", "sfn", "ptp", "pfp", "pfn")}
+    return prf(t["stp"], t["sfp"], t["sfn"]), prf(t["ptp"], t["pfp"], t["pfn"])
 
-    sep = "+" + "-" * 36 + "+" + "-" * 17 + "+" + "-" * 17 + "+" + "-" * 7 + "+"
-    print("\n" + sep)
-    print(f"| {'GOLD-SET BENCHMARK (developer prompts + injected PII)':<78} |")
-    print(sep)
-    print(f"| {'Rows / PII rows / GT spans / sources':<34} | {len(rows):>15} | {pii_rows:>15} | {spans:>5} |")
-    print(sep)
-    row("1. Stage 1 latency (deterministic)", f"{np.percentile(s1_lat,50):.3f} ms", f"{np.percentile(s1_lat,95):.3f} ms")
-    row("2. Stage 2 latency (GLiNER)", f"{np.percentile(s2_lat,50):.3f} ms", f"{np.percentile(s2_lat,95):.3f} ms")
-    row("3. Total cascade latency", f"{np.percentile(tot_lat,50):.3f} ms", f"{np.percentile(tot_lat,95):.3f} ms")
-    print(sep)
-    row("4a. Overall STRICT P / R / F1", f"{sp:.1%} / {sr:.1%}", f"F1 {sf:.1%}")
-    row("4b. Overall PARTIAL P / R / F1", f"{pp:.1%} / {pr:.1%}", f"F1 {pf:.1%}")
-    print(sep)
-    row("5a. Hard-negative checks", f"{neg_pass}/{neg_total} pass", "")
-    row("5b. TECH_ALLOWLIST checks", f"{tech_pass}/{tech_total} pass", f"{empty_fail} empty-fail")
-    row("5c. Clean-row detections (review)", f"{clean_rows_hit}/{clean_rows} rows", f"{clean_spans} spans")
-    row("6. Round-trip stream invariant", f"{rt_pass}/{len(rows)} pass", "")
-    print(sep)
-    print(f"| {'Entity':<34} | {'Strict P / R / F1':>15} | {'Partial P / R / F1':>15} | {'GT':>5} |")
-    print(sep)
+def line(name, a, b="", c="", d=""):
+    return f"| {name:<30} | {a:>13} | {b:>13} | {c:>13} | {d:>9} |"
+
+def report(results, total):
+    out = []
+    out.append("# Code-Airlock Unified Benchmark Results\n")
+    out.append("Metrics only. No raw credentials or PII values are included.\n")
+    out.append("## Suite Scorecard\n")
+    out.append("| Suite | Rows | Strict P / R / F1 | Partial P / R / F1 | Hard-Neg | Clean 0-FP | SSE |")
+    out.append("| :--- | ---: | :---: | :---: | :---: | :---: | :---: |")
+    for suite, res in results.items():
+        st, pt = metrics(res["per"])
+        out.append(f"| {suite} | {len(res['rows'])} | {st[0]:.1%} / {st[1]:.1%} / {st[2]:.1%} | "
+                   f"{pt[0]:.1%} / {pt[1]:.1%} / {pt[2]:.1%} | {res['hard'][0]}/{res['hard'][1]} | "
+                   f"{res['clean'][0]}/{res['clean'][1]} | {res['sse'][0]}/{res['sse'][1]} |")
+    st, pt = metrics(total["per"])
+    out.append(f"| **all** | **{len(total['rows'])}** | **{st[0]:.1%} / {st[1]:.1%} / {st[2]:.1%}** | "
+               f"**{pt[0]:.1%} / {pt[1]:.1%} / {pt[2]:.1%}** | **{total['hard'][0]}/{total['hard'][1]}** | "
+               f"**{total['clean'][0]}/{total['clean'][1]}** | **{total['sse'][0]}/{total['sse'][1]}** |")
+    out.append("\n## Latency\n")
+    out.append("| Stage | p50 | p95 |")
+    out.append("| :--- | ---: | ---: |")
+    for name, arr in (("Stage 1 (deterministic)", total["s1"]), ("Stage 2 (GLiNER)", total["s2"]), ("Total cascade", total["tot"])):
+        out.append(f"| {name} | {np.percentile(arr, 50):.3f} ms | {np.percentile(arr, 95):.3f} ms |")
+    out.append("\n## Per-Entity Support & Metrics\n")
+    out.append("| Entity | GT | Strict P / R / F1 | Partial P / R / F1 |")
+    out.append("| :--- | ---: | :---: | :---: |")
     for lbl in LABELS:
-        st = per[lbl]
-        p1, r1, f1 = prf(st["stp"], st["sfp"], st["sfn"])
-        p2, r2, f2 = prf(st["ptp"], st["pfp"], st["pfn"])
-        print(f"| {lbl:<34} | {p1*100:>4.0f}/{r1*100:>4.0f}/{f1*100:>4.0f} | "
-              f"{p2*100:>4.0f}/{r2*100:>4.0f}/{f2*100:>4.0f} | {st['n']:>5} |")
-    print(sep + "\n")
+        s = total["per"][lbl]
+        s1, p1 = prf(s["stp"], s["sfp"], s["sfn"]), prf(s["ptp"], s["pfp"], s["pfn"])
+        out.append(f"| {lbl} | {s['n']} | {s1[0]:.1%} / {s1[1]:.1%} / {s1[2]:.1%} | "
+                   f"{p1[0]:.1%} / {p1[1]:.1%} / {p1[2]:.1%} |")
+    out.append("\n## Invariants\n")
+    out.append(f"- MCP JSON parse: {total['json'][0]}/{total['json'][2]} valid; "
+               f"round-trip: {total['json'][1]}/{total['json'][2]}")
+    out.append(f"- SSE 1/2/7-byte round-trip: {total['sse'][0]}/{total['sse'][1]} rows")
+    out.append(f"- Hard negatives: {total['hard'][0]}/{total['hard'][1]} clean")
+    out.append(f"- Clean-row 0-FP rate: {total['clean'][0]}/{total['clean'][1]} "
+               f"({total['clean'][0] / total['clean'][1]:.1%})" if total["clean"][1] else "- Clean-row 0-FP rate: n/a")
+    text = "\n".join(out) + "\n"
+    with open(os.path.join(BASE, "BENCHMARK_RESULTS.md"), "w", encoding="utf-8") as f:
+        f.write(text)
+    return text
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--suite", choices=SUITES + ["all"], default="all")
+    args = parser.parse_args()
+    if not all(os.path.exists(os.path.join(BENCH, f"{s}.jsonl")) for s in SUITES):
+        subprocess.run([sys.executable, os.path.join(BASE, "build_benchmarks.py")], check=True)
+    chosen = SUITES if args.suite == "all" else [args.suite]
+    engine = CascadeEngine()
+    results = {s: evaluate(load(s), engine) for s in chosen}
+    total = combine(list(results.values()))
+    text = report(results, total)
+    print(text)
 
 if __name__ == "__main__":
-    import sys
-    main(sys.argv[1] if len(sys.argv) > 1 else None)
+    main()

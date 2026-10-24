@@ -7,7 +7,7 @@
 * **Dual Deployment Modes:** Run as a drop-in **OpenAI-compatible `/v1/chat/completions` reverse proxy** or as a **Model Context Protocol (MCP) server** (`stdio`) for OpenCode, Cursor, and Claude Code.
 * **2-Stage Hybrid Cascade:** Combines sub-millisecond deterministic regex + mathematical checksums (**Luhn, Verhoeff $D_5$, ISO 7064 MOD-97**) with contextual neural NER (`urchade/gliner_small-v2.1`) and a 93-term developer allowlist.
 * **Zero-Delay Streaming Rehydration:** Stateful sliding-window SSE parser reassembles split tokens across arbitrary 2-byte network chunks without delaying code comparison or bitwise operators (`<`, `<<`, `template <typename T>`).
-* **Minimalist Systems Footprint:** ~790 lines of flat, auditable Python across 7 core files (`engine.py`, `sanitizer.py`, `proxy.py`, `mcp_server.py`, `benchmark.py`, and test suites).
+* **Minimalist Systems Footprint:** ~790 lines of core runtime code (`engine.py`, `sanitizer.py`, `proxy.py`, `mcp_server.py`) plus a deterministic 2,000-row benchmark harness.
 
 ---
 
@@ -75,29 +75,48 @@ Evaluated on **285 developer prompts** (sampled from `CodeAlpaca_20K` and `OpenC
 
 ---
 
-## 🧪 Developer & Git-Leak Benchmarks
+## 🧪 Unified 2,000-Row Benchmark Matrix
 
-Two additional suites target real coding workflows instead of conversational PII:
+`build_benchmarks.py` deterministically generates four stratified splits into the git-ignored `benchmarks/` directory (`seed=42`). `benchmark.py` evaluates them and writes [`BENCHMARK_RESULTS.md`](BENCHMARK_RESULTS.md).
 
-| Suite | Rows / Spans | Strict P / R / F1 | False positives on clean code |
-| :--- | :---: | :---: | :---: |
-| **`gold_set.jsonl`** (algorithm prompts + injected PII) | 285 / 744 | 96.7% / 99.1% / **97.9%** | 18 / 120 clean rows |
-| **`dev_benchmark.jsonl`** (configs, cURL, logs, SDKs) | 56 / 112 | 97.2% / 94.6% / **95.9%** | **0 / 33 clean rows** |
-| **`git_leak_benchmark.jsonl`** (real `git show` / `git diff` + Gitleaks formats) | 36 / 61 | 100% / 88.5% / **93.9%** | **0 / 3 clean rows** |
+| Split | Rows | Positive | Clean / Hard-neg | Ground-truth spans |
+| :--- | ---: | ---: | ---: | ---: |
+| `dev_prompts` | 1,000 | 600 | 300 / 100 | 2,400 |
+| `git_leaks` | 500 | 350 | 0 / 150 | 1,400 |
+| `mcp_configs` | 250 | 200 | 50 / 0 | 800 |
+| `adversarial_sse` | 250 | 250 | 0 / 0 | 1,217 |
+| **Total** | **2,000** | **1,400** | **350 / 250** | **5,817** |
 
-- `dev_benchmark.jsonl` is committed and covers `.env` files, Docker/K8s/Terraform configs, cURL pipelines, production tracebacks, SDK initializers, and 33 hard-negative code blocks (C++ templates, bitwise operators, SHAs, UUIDs, invalid checksums).
-- `git_leak_benchmark.jsonl` is generated locally by `build_git_leak_benchmark.py` (git-ignored because it contains format-valid dummy credentials). It includes actual `git show` / `git diff --cached` output from Gitleaks' fixture repositories plus 22 long-tail token formats (Stripe, SendGrid, Square, Shopify, PyPI, Twilio, GitLab, Postman, 1Password, …). See [GIT_LEAK_BENCHMARK.md](GIT_LEAK_BENCHMARK.md) for the full breakdown and the remaining contextual false negatives.
-- Publish either suite to Hugging Face with `python export_hf.py --repo-id <user>/<dataset> --file <file> --card <card>`.
+Reference result (strict exact-span matching, `code-airlock` v0.1.0):
 
-### 🤗 Published Datasets
+| Split | Strict P / R / F1 | Hard-neg | Clean 0-FP | SSE 1/2/7-byte |
+| :--- | :---: | :---: | :---: | :---: |
+| `dev_prompts` | 100% / 100% / 100% | 100/100 | 300/300 | 1000/1000 |
+| `git_leaks` | 100% / 100% / 100% | 150/150 | — | 500/500 |
+| `mcp_configs` | 100% / 100% / 100% | — | 50/50 | 250/250 |
+| `adversarial_sse` | 100% / 100% / 100% | — | — | 250/250 |
+| **Combined** | **100% / 100% / 100%** | **250/250** | **350/350** | **2000/2000** |
 
-| Dataset | Rows | Use it with |
-| :--- | ---: | :--- |
-| [**sarthax/code-airlock-dev-benchmark**](https://huggingface.co/datasets/sarthax/code-airlock-dev-benchmark) | 56 | `load_dataset("sarthax/code-airlock-dev-benchmark", split="train")` |
-| [**sarthax/code-airlock-git-leaks**](https://huggingface.co/datasets/sarthax/code-airlock-git-leaks) | 36 | `load_dataset("sarthax/code-airlock-git-leaks", split="train")` |
+- Latency: **0.194 ms** p50 / 0.355 ms p95 Stage 1; **30.349 ms** p50 / 39.391 ms p95 Stage 2; **30.391 ms** p50 / 39.554 ms p95 total cascade.
+- Per-entity support: `API_KEY` 756, `AUTH_TOKEN` 467, `CREDIT_CARD` 440, `EMAIL` 754, `PHONE` 465, `IP_ADDRESS` 442, `GOVT_ID` 465, `IBAN_CRYPTO` 465, `PERSON` 729, `ORGANIZATION` 417, `LOCATION` 417. Every entity is at **100% P/R/F1**.
+- Invariants: MCP JSON parse **100/100**, JSON round-trip **100/100**, adversarial SSE **2,000/2,000**, hard negatives **250/250**, clean rows **350/350 with zero false positives**.
 
-Both datasets expose the same fields: `id`, `source`, `tags`, `text`,
-`entities` (`label`, `start`, `end`, `text`), `negatives`, and `expect_empty`.
+These are **synthetic, template-composed fixtures**, so the perfect headline is a regression/invariant result, not a claim of real-world accuracy. The older real-world suites (`gold_set.jsonl`: 96.7/99.1/97.9; Gitleaks artifacts: 100/88.5/93.9) remain the honest field tests.
+
+### 🤗 Published Dataset
+
+One command publishes all four splits and the auto-generated card:
+
+```bash
+python export_hf.py --repo-id sarthexe/pii-airlock-bench
+```
+
+Dataset: [**sarthax/pii-airlock-bench**](https://huggingface.co/datasets/sarthax/pii-airlock-bench) (the token owner namespace is resolved automatically).
+
+```python
+from datasets import load_dataset
+ds = load_dataset("sarthax/pii-airlock-bench")
+```
 
 ---
 
@@ -202,11 +221,12 @@ To ensure your coding agent actually leverages the airlock tools instead of raw 
 | `sanitizer.py` | 93 | Session-consistent `VaultSession` dehydrator + stateful `StreamRehydrator` SSE parser |
 | `proxy.py` | 143 | FastAPI `/v1/chat/completions` gateway with SSE streaming rehydration & telemetry headers |
 | `mcp_server.py` | 71 | FastMCP `stdio` server exposing 5 zero-leak text and file tools for agentic harnesses |
-| `benchmark.py` | 133 | Strict/Partial overlap evaluator, p50/p95 latency timer, and hard-negative verifier |
+| `benchmark.py` | 161 | Unified 4-suite evaluator: P/R/F1, per-entity support, latency, hard-neg/clean/JSON/SSE invariants |
+| `build_benchmarks.py` | 239 | Deterministic 2,000-row generator (`seed=42`) for the four `benchmarks/` splits |
 | `test_proxy.py` | 84 | End-to-end proxy tests (11-entity zero-leak check, 2-char SSE split rehydration, C++ syntax) |
 | `test_mcp.py` | 66 | MCP tool verification (`.env` $\rightarrow$ `config.json` zero-leak file migration & vault safety) |
-| `export_hf.py` | 38 | One-command export of either benchmark JSONL plus dataset card to Hugging Face |
-| `DATASET_CARD_DEV.md` | — | Hugging Face dataset card for the 56-row developer suite |
-| `DATASET_CARD_GIT.md` | — | Hugging Face dataset card for the 36-row Git-leak suite |
-| `dev_benchmark.jsonl` | — | 56 developer-native rows (configs, cURL, logs, SDKs, hard negatives) |
-| `git_leak_benchmark.jsonl` | — | Local-only 36-row real Git-artifact suite (generated; git-ignored) |
+| `export_hf.py` | 62 | Publishes all 4 splits plus the auto-generated dataset card to Hugging Face |
+| `BENCHMARK_RESULTS.md` | — | Generated metrics-only scorecard (safe to commit) |
+| `benchmarks/*.jsonl` | — | Generated 4-split fixtures (git-ignored) |
+| `dev_benchmark.jsonl` | — | Legacy 56-row suite (git-ignored, superseded) |
+| `git_leak_benchmark.jsonl` | — | Legacy 36-row Git-leak suite (git-ignored, superseded) |

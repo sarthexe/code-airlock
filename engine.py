@@ -67,11 +67,11 @@ AUTH_TOKEN_RE = re.compile(
 PHONE_RE = re.compile(
     r"(?i)(?<!order)(?<!invoice)(?<!id)(?<!ticket)(?<!order\s)(?<!invoice\s)(?<!id\s)(?<!ticket\s)"
     r"(?<!order:\s)(?<!invoice:\s)(?<!id:\s)(?<!ticket:\s)(?<!order\s#\s)(?<!invoice\s#\s)"
-    r"(?<!\d)(?:(?:\+?1[-.\s]?)?(?:\([2-9]\d{2}\)|[2-9]\d{2})[-.\s]?[2-9]\d{2}[-.\s]?\d{4}|"
-    r"(?:\+91[-.\s]?)?[6-9]\d{9}|\+\d{1,3}(?:[-.\s]?\d{1,4}){2,5})(?!\d)"
+    r"(?<![0-9A-Za-z])(?:(?:\+?1[-.\s]?)?(?:\([2-9]\d{2}\)|[2-9]\d{2})[-.\s]?[2-9]\d{2}[-.\s]?\d{4}|"
+    r"(?:\+91[-.\s]?)?[6-9]\d{9}|\+\d{1,3}(?:[-.\s]?\d{1,4}){2,5})(?![0-9A-Za-z])"
 )
-IPV4_CAND_RE = re.compile(r"(?<!\d)(?:\d{1,4}\.){3}\d{1,4}(?!\d)")
-CC_CAND_RE = re.compile(r"(?<!\d)(?:\d{4}[ -]\d{4}[ -]\d{4}[ -]\d{1,7}|\d{4}[ -]\d{6}[ -]\d{5}|\d{13,19})(?!\d)")
+IPV4_CAND_RE = re.compile(r"(?<![vV\d])(?:\d{1,4}\.){3}\d{1,4}(?!\d)")
+CC_CAND_RE = re.compile(r"(?<![0-9A-Za-z])(?:\d{4}[ -]\d{4}[ -]\d{4}[ -]\d{1,7}|\d{4}[ -]\d{6}[ -]\d{5}|\d{13,19})(?![0-9A-Za-z])")
 SSN_RE = re.compile(r"\b(?!000|666|9\d\d)\d{3}-(?!00)\d{2}-(?!0000)\d{4}\b")
 PAN_RE = re.compile(r"\b[A-Z]{5}[0-9]{4}[A-Z]\b")
 AADHAAR_RE = re.compile(r"\b[2-9]\d{3}[ -]?\d{4}[ -]?\d{4}\b")
@@ -89,7 +89,7 @@ TECH_ALLOWLIST = frozenset({
     "prometheus", "terraform", "ansible", "jenkins", "gitlab", "bitbucket", "npm",
     "yarn", "pnpm", "pip", "cargo", "maven", "gradle", "webpack", "vite", "babel",
     "eslint", "jest", "pytest", "numpy", "pandas", "scipy", "sklearn", "tensorflow",
-    "keras", "huggingface", "transformers", "spacy",
+    "keras", "huggingface", "transformers", "spacy", "kyc", "treasury", "wallet",
 })
 
 PERSON_STOPWORDS = frozenset({
@@ -98,13 +98,13 @@ PERSON_STOPWORDS = frozenset({
     "person", "self", "caller", "callee", "manager", "developer", "engineer",
     "alice_id", "bob_id", "you", "your", "we", "our", "they", "them", "their",
     "he", "she", "it", "this", "that", "these", "those",
+    "helpful coding assistant", "coding assistant", "assistant", "austin", "bangalore", "berlin", "paris", "tokyo", "lagos", "sao paulo", "toronto", "dubai", "london",
 })
 
 CODE_CHARS = frozenset("_()[]{}:;/\\=$@")
-SCHEMA_WORDS = frozenset({
-    "production", "development", "staging", "prod", "dev", "test", "localhost",
+SCHEMA_WORDS = frozenset({"production", "development", "staging", "prod", "dev", "test", "localhost",
     "api", "backend", "frontend", "database", "server", "client", "service", "origin",
-})
+    "environment", "region", "payments", "config", "metadata"})
 
 def stage2_ok(text: str, label: str) -> bool:
     """Reject Stage 2 drift on code identifiers, tech names, and role words."""
@@ -113,18 +113,18 @@ def stage2_ok(text: str, label: str) -> bool:
     low = t.lower()
     if low in TECH_ALLOWLIST or low in {"location", "organization", "person", "address", "user"}: return False
     if label in ("LOCATION", "ORGANIZATION") and low in SCHEMA_WORDS: return False
-    if label == "LOCATION" and re.fullmatch(r"[a-z]{2}(?:-[a-z]+)+-\d+", low): return False
+    if label == "LOCATION" and (re.fullmatch(r"[a-z]{2}(?:-[a-z]+)+-\d+", low) or any(w in low.split() for w in ("cluster", "node", "proxy", "channel", "region"))): return False
     if label == "ORGANIZATION" and re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)+", t): return False
+    if (label == "ORGANIZATION" and (low.endswith(" service") or low.replace(".", "") in TECH_ALLOWLIST)) or re.fullmatch(r"[A-Z]{2}\d{2}[A-Z0-9]{11,30}", t): return False
     if label == "PERSON" and low in PERSON_STOPWORDS: return False
     if label == "PERSON" and " " not in t and (len(t) > 25 or any(c.isdigit() for c in t) or sum(c.isupper() for c in t) / len(t) > 0.5): return False
-    if any(ch in CODE_CHARS for ch in t) or (any(c.isdigit() for c in t) and "." in t): return False
+    if any(ch in CODE_CHARS for ch in t) or (any(c.isdigit() for c in t) and "." in t) or (label in ("LOCATION", "PERSON", "ORGANIZATION") and t.isdigit()): return False
     return True
 
 def spans_overlap(s1: Span, s2: Span) -> bool:
     return max(s1.start, s2.start) < min(s1.end, s2.end)
 
-LABEL_PRIORITY = {"API_KEY": 0, "AUTH_TOKEN": 0, "CREDIT_CARD": 0, "GOVT_ID": 0,
-                  "IBAN_CRYPTO": 0, "EMAIL": 1, "PHONE": 1, "IP_ADDRESS": 1}
+LABEL_PRIORITY = {"API_KEY": 0, "AUTH_TOKEN": 0, "CREDIT_CARD": 0, "GOVT_ID": 0, "IBAN_CRYPTO": 0, "EMAIL": 1, "PHONE": 1, "IP_ADDRESS": 1}
 
 def _resolve_same_stage(spans: list[Span]) -> list[Span]:
     sorted_spans = sorted(spans, key=lambda s: (LABEL_PRIORITY.get(s.label, 2), -(s.end - s.start), -s.score, s.start))

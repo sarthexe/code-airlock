@@ -11,3 +11,5 @@ build/
 .git_leaks/
 git_leak_benchmark.jsonl
 build_git_leak_benchmark.py
+benchmarks/*.jsonl
+*benchmark*.jsonl
