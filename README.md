@@ -168,17 +168,6 @@ To ensure your coding agent actually leverages the airlock tools instead of raw 
 3. Call `airlock_vault_status()` to inspect active pseudonymized tokens safely (never returns plaintext values).
 ```
 
----
-
-## 📦 PyPI Publishing (Trusted Publishing via GitHub Actions)
-
-This repository includes a turnkey GitHub Actions workflow (`.github/workflows/publish.yml`) configured for **PyPI Trusted Publishing (OIDC)**:
-1. Create a project named `code-airlock` on [pypi.org](https://pypi.org/manage/account/publishing/).
-2. Add a **Trusted Publisher** pointing to `sarthexe/code-airlock` and workflow `publish.yml`.
-3. Create a GitHub Release on this repository — the workflow will build the wheel and publish automatically with zero API tokens or manual steps.
-
----
-
 ## 📁 Repository Structure
 
 | File | Lines | Responsibility |
