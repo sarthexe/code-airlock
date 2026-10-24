@@ -102,9 +102,9 @@ def stage2_ok(text: str, label: str) -> bool:
     t = text.strip()
     if len(t) <= 2: return False
     low = t.lower()
-    if low in TECH_ALLOWLIST: return False
+    if low in TECH_ALLOWLIST or low in {"location", "organization", "person", "address", "user"}: return False
     if label == "PERSON" and low in PERSON_STOPWORDS: return False
-    if any(ch in CODE_CHARS for ch in t): return False
+    if any(ch in CODE_CHARS for ch in t) or (any(c.isdigit() for c in t) and "." in t): return False
     return True
 
 def spans_overlap(s1: Span, s2: Span) -> bool:

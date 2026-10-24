@@ -55,8 +55,8 @@ def roundtrip(dehydrated: str, vault: dict[str, str], original: str) -> bool:
 def row(name: str, a: str, b: str, c: str = "") -> None:
     print(f"| {name:<34} | {a:>15} | {b:>15} | {c:>5} |")
 
-def main() -> None:
-    rows = load()
+def main(path: str | None = None) -> None:
+    rows = load(path) if path else load()
     engine = CascadeEngine()
     for w in ("Warmup text.", "Rahul at Microsoft in Bengaluru, India.", "test@test.com +1-555-123-4567"):
         for _ in range(2):
@@ -129,4 +129,5 @@ def main() -> None:
     print(sep + "\n")
 
 if __name__ == "__main__":
-    main()
+    import sys
+    main(sys.argv[1] if len(sys.argv) > 1 else None)
