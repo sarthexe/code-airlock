@@ -1,6 +1,6 @@
-# PII-Airlock: Supported Identity Taxonomy
+# Code-Airlock: Supported Identity Taxonomy
 
-`pii-airlock` uses a **2-Stage Hybrid Cascade** to redact and rehydrate 11 core categories of sensitive data. 
+`code-airlock` uses a **2-Stage Hybrid Cascade** to redact and rehydrate 11 core categories of sensitive data. 
 
 **Design Principle:** Deterministic patterns and mathematical checksums (Stage 1) never touch a neural network, and unstructured human context (Stage 2) is filtered through a technical allowlist to prevent false positives on developer prompts.
 

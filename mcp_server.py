@@ -1,11 +1,11 @@
-"""mcp_server.py - FastMCP stdio server exposing pii-airlock to coding harnesses."""
+"""mcp_server.py - FastMCP stdio server exposing code-airlock to coding harnesses."""
 from __future__ import annotations
 import re, time
 from mcp.server.fastmcp import FastMCP
 from engine import CascadeEngine
 from sanitizer import StreamRehydrator, VaultSession
 
-mcp = FastMCP("pii-airlock")
+mcp = FastMCP("code-airlock")
 ENGINE = CascadeEngine()
 VAULT = VaultSession()
 TOKEN_RE = re.compile(r"<[A-Z_]+_\d+>")

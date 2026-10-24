@@ -1,6 +1,6 @@
-# PII-Airlock Agent Guardrails
+# Code-Airlock Agent Guardrails
 
-You have access to the `pii-airlock` MCP server tools. Protect sensitive data by adhering to the following rules:
+You have access to the `code-airlock` MCP server tools. Protect sensitive data by adhering to the following rules:
 
 1. **Reading Sensitive Files:**
    - Whenever inspecting `.env`, configuration files, credential dumps, or log files, NEVER use the standard read tool.

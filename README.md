@@ -1,8 +1,8 @@
-# 🛡️ PII-Airlock
+# 🛡️ Code-Airlock
 
-**Low-Latency AI Privacy, PII Redaction & Streaming Rehydration Gateway (`OpenAI Proxy` + `MCP Server`)**
+**Low-Latency AI Privacy, Secret/PII Redaction & Streaming Rehydration Gateway (`OpenAI Proxy` + `FastMCP Server`)**
 
-`pii-airlock` is a zero-trust privacy layer for LLMs and agentic coding harnesses. It intercepts sensitive credentials, financial identifiers, and personal data before they leave your machine, replaces them with deterministic session tokens (`<API_KEY_1>`, `<PERSON_1>`), and seamlessly rehydrates them back into real-time Server-Sent Events (SSE) token streams or local file writes.
+`code-airlock` is a zero-trust privacy layer for LLMs and agentic coding harnesses. It intercepts sensitive credentials, financial identifiers, and personal data before they leave your machine, replaces them with deterministic session tokens (`<API_KEY_1>`, `<PERSON_1>`), and seamlessly rehydrates them back into real-time Server-Sent Events (SSE) token streams or local file writes.
 
 * **Dual Deployment Modes:** Run as a drop-in **OpenAI-compatible `/v1/chat/completions` reverse proxy** or as a **Model Context Protocol (MCP) server** (`stdio`) for OpenCode, Cursor, and Claude Code.
 * **2-Stage Hybrid Cascade:** Combines sub-millisecond deterministic regex + mathematical checksums (**Luhn, Verhoeff $D_5$, ISO 7064 MOD-97**) with contextual neural NER (`urchade/gliner_small-v2.1`) and a 93-term developer allowlist.
@@ -24,7 +24,7 @@ flowchart TB
 
     Client(["🖥️ Client SDK / Agent Harness<br/>(OpenAI SDK, OpenCode, Cursor, Claude Code)"]):::client
 
-    subgraph Airlock["🛡️ PII-AIRLOCK (proxy.py / mcp_server.py)"]
+    subgraph Airlock["🛡️ CODE-AIRLOCK (proxy.py / mcp_server.py)"]
         direction TB
         subgraph Cascade["engine.py — 2-Stage Hybrid Cascade"]
             S1["⚡ Stage 1: Deterministic Fast-Pass (~0.44ms)<br/>• Regex: API_KEY, AUTH_TOKEN, EMAIL, PHONE, IPv4<br/>• Checksums: Luhn (Card), Verhoeff (ID), MOD-97 (IBAN)"]:::stage1
@@ -79,11 +79,11 @@ Evaluated on **285 developer prompts** (sampled from `CodeAlpaca_20K` and `OpenC
 
 ### Option 1: Zero-Install via `uvx` (Recommended)
 
-No cloning, manual virtual environments, or path debugging. Anyone with Astral's [`uv`](https://github.com/astral-sh/uv) can run `pii-airlock` directly from GitHub (or PyPI once published):
+No cloning, manual virtual environments, or path debugging. Anyone with Astral's [`uv`](https://github.com/astral-sh/uv) can run `code-airlock` directly from GitHub (or PyPI once published):
 
 #### 🤖 Claude Code (CLI)
 ```bash
-claude mcp add pii-airlock -- uvx --from git+https://github.com/sarthexe/pii-airlock pii-airlock
+claude mcp add code-airlock -- uvx --from git+https://github.com/sarthexe/code-airlock code-airlock
 ```
 
 #### 💻 OpenCode (`opencode.json`)
@@ -91,9 +91,9 @@ claude mcp add pii-airlock -- uvx --from git+https://github.com/sarthexe/pii-air
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
-    "pii-airlock": {
+    "code-airlock": {
       "type": "local",
-      "command": ["uvx", "--from", "git+https://github.com/sarthexe/pii-airlock", "pii-airlock"],
+      "command": ["uvx", "--from", "git+https://github.com/sarthexe/code-airlock", "code-airlock"],
       "enabled": true
     }
   }
@@ -104,9 +104,9 @@ claude mcp add pii-airlock -- uvx --from git+https://github.com/sarthexe/pii-air
 ```json
 {
   "mcpServers": {
-    "pii-airlock": {
+    "code-airlock": {
       "command": "uvx",
-      "args": ["--from", "git+https://github.com/sarthexe/pii-airlock", "pii-airlock"]
+      "args": ["--from", "git+https://github.com/sarthexe/code-airlock", "code-airlock"]
     }
   }
 }
@@ -116,23 +116,23 @@ claude mcp add pii-airlock -- uvx --from git+https://github.com/sarthexe/pii-air
 ```json
 {
   "mcpServers": {
-    "pii-airlock": {
+    "code-airlock": {
       "command": "uvx",
-      "args": ["--from", "git+https://github.com/sarthexe/pii-airlock", "pii-airlock"]
+      "args": ["--from", "git+https://github.com/sarthexe/code-airlock", "code-airlock"]
     }
   }
 }
 ```
 
-*(Once published to PyPI, the args simplify to just `["uvx", "pii-airlock"]`)*.
+*(Once published to PyPI, the args simplify to just `["uvx", "code-airlock"]`)*.
 
 ---
 
 ### Option 2: Local Development / Manual Git Clone
 
 ```bash
-git clone https://github.com/sarthexe/pii-airlock.git
-cd pii-airlock
+git clone https://github.com/sarthexe/code-airlock.git
+cd code-airlock
 pip install -r requirements.txt
 pip install -e .
 
@@ -162,7 +162,7 @@ uvicorn proxy:app --port 8000
 To ensure your coding agent actually leverages the airlock tools instead of raw file reads, include this rule in your `.cursorrules`, `CLAUDE.md`, or system instructions:
 
 ```markdown
-# PII-Airlock Agent Guardrails
+# Code-Airlock Agent Guardrails
 1. When reading `.env`, configuration, or log files, NEVER use standard read tools. ALWAYS call `airlock_read_file(path)` so secrets and PII are redacted into `<ENTITY_n>` tokens before hitting context.
 2. When creating or editing configs, write the `<ENTITY_n>` tokens directly and call `airlock_write_file(path, content)`. The airlock will rehydrate the real secrets locally on disk without ever sending them through the LLM.
 3. Call `airlock_vault_status()` to inspect active pseudonymized tokens safely (never returns plaintext values).
@@ -173,8 +173,8 @@ To ensure your coding agent actually leverages the airlock tools instead of raw 
 ## 📦 PyPI Publishing (Trusted Publishing via GitHub Actions)
 
 This repository includes a turnkey GitHub Actions workflow (`.github/workflows/publish.yml`) configured for **PyPI Trusted Publishing (OIDC)**:
-1. Create a project named `pii-airlock` on [pypi.org](https://pypi.org/manage/account/publishing/).
-2. Add a **Trusted Publisher** pointing to `sarthexe/pii-airlock` and workflow `publish.yml`.
+1. Create a project named `code-airlock` on [pypi.org](https://pypi.org/manage/account/publishing/).
+2. Add a **Trusted Publisher** pointing to `sarthexe/code-airlock` and workflow `publish.yml`.
 3. Create a GitHub Release on this repository — the workflow will build the wheel and publish automatically with zero API tokens or manual steps.
 
 ---

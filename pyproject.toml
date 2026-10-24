@@ -3,10 +3,10 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pii-airlock"
+name = "code-airlock"
 version = "0.1.0"
-description = "Low-latency OpenAI-compatible PII Redaction & Rehydration Gateway"
-authors = [{ name = "pii-airlock team" }]
+description = "Low-latency OpenAI-compatible PII Redaction & Rehydration Gateway and FastMCP Server"
+authors = [{ name = "code-airlock team" }]
 dependencies = [
     "gliner>=0.2.13",
     "torch>=2.0.0",
@@ -21,7 +21,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 
 [project.scripts]
-pii-airlock = "mcp_server:main"
+code-airlock = "mcp_server:main"
 
 [tool.setuptools]
 py-modules = ["mcp_server", "engine", "sanitizer", "proxy", "benchmark"]
