@@ -79,11 +79,11 @@ Evaluated on **285 developer prompts** (sampled from `CodeAlpaca_20K` and `OpenC
 
 ### Option 1: Zero-Install via `uvx` (Recommended)
 
-No cloning, manual virtual environments, or path debugging. Anyone with Astral's [`uv`](https://github.com/astral-sh/uv) can run `code-airlock` directly from GitHub (or PyPI once published):
+No cloning, manual virtual environments, or path debugging. Anyone with Astral's [`uv`](https://github.com/astral-sh/uv) can run `code-airlock` directly from PyPI:
 
 #### 🤖 Claude Code (CLI)
 ```bash
-claude mcp add code-airlock -- uvx --from git+https://github.com/sarthexe/code-airlock code-airlock
+claude mcp add code-airlock -- uvx code-airlock
 ```
 
 #### 💻 OpenCode (`opencode.json`)
@@ -93,7 +93,7 @@ claude mcp add code-airlock -- uvx --from git+https://github.com/sarthexe/code-a
   "mcp": {
     "code-airlock": {
       "type": "local",
-      "command": ["uvx", "--from", "git+https://github.com/sarthexe/code-airlock", "code-airlock"],
+      "command": ["uvx", "code-airlock"],
       "enabled": true
     }
   }
@@ -106,7 +106,7 @@ claude mcp add code-airlock -- uvx --from git+https://github.com/sarthexe/code-a
   "mcpServers": {
     "code-airlock": {
       "command": "uvx",
-      "args": ["--from", "git+https://github.com/sarthexe/code-airlock", "code-airlock"]
+      "args": ["code-airlock"]
     }
   }
 }
@@ -118,13 +118,13 @@ claude mcp add code-airlock -- uvx --from git+https://github.com/sarthexe/code-a
   "mcpServers": {
     "code-airlock": {
       "command": "uvx",
-      "args": ["--from", "git+https://github.com/sarthexe/code-airlock", "code-airlock"]
+      "args": ["code-airlock"]
     }
   }
 }
 ```
 
-*(Once published to PyPI, the args simplify to just `["uvx", "code-airlock"]`)*.
+*(You can also run directly from source via `uvx --from git+https://github.com/sarthexe/code-airlock code-airlock`)*.
 
 ---
 
