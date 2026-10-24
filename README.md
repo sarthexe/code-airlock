@@ -87,7 +87,17 @@ Two additional suites target real coding workflows instead of conversational PII
 
 - `dev_benchmark.jsonl` is committed and covers `.env` files, Docker/K8s/Terraform configs, cURL pipelines, production tracebacks, SDK initializers, and 33 hard-negative code blocks (C++ templates, bitwise operators, SHAs, UUIDs, invalid checksums).
 - `git_leak_benchmark.jsonl` is generated locally by `build_git_leak_benchmark.py` (git-ignored because it contains format-valid dummy credentials). It includes actual `git show` / `git diff --cached` output from Gitleaks' fixture repositories plus 22 long-tail token formats (Stripe, SendGrid, Square, Shopify, PyPI, Twilio, GitLab, Postman, 1Password, …). See [GIT_LEAK_BENCHMARK.md](GIT_LEAK_BENCHMARK.md) for the full breakdown and the remaining contextual false negatives.
-- Publish either suite to Hugging Face with `python export_hf.py --repo-id <user>/<dataset> [--file git_leak_benchmark.jsonl]`.
+- Publish either suite to Hugging Face with `python export_hf.py --repo-id <user>/<dataset> --file <file> --card <card>`.
+
+### 🤗 Published Datasets
+
+| Dataset | Rows | Use it with |
+| :--- | ---: | :--- |
+| [**sarthax/code-airlock-dev-benchmark**](https://huggingface.co/datasets/sarthax/code-airlock-dev-benchmark) | 56 | `load_dataset("sarthax/code-airlock-dev-benchmark", split="train")` |
+| [**sarthax/code-airlock-git-leaks**](https://huggingface.co/datasets/sarthax/code-airlock-git-leaks) | 36 | `load_dataset("sarthax/code-airlock-git-leaks", split="train")` |
+
+Both datasets expose the same fields: `id`, `source`, `tags`, `text`,
+`entities` (`label`, `start`, `end`, `text`), `negatives`, and `expect_empty`.
 
 ---
 
@@ -195,6 +205,8 @@ To ensure your coding agent actually leverages the airlock tools instead of raw 
 | `benchmark.py` | 133 | Strict/Partial overlap evaluator, p50/p95 latency timer, and hard-negative verifier |
 | `test_proxy.py` | 84 | End-to-end proxy tests (11-entity zero-leak check, 2-char SSE split rehydration, C++ syntax) |
 | `test_mcp.py` | 66 | MCP tool verification (`.env` $\rightarrow$ `config.json` zero-leak file migration & vault safety) |
-| `export_hf.py` | 31 | One-command export of either benchmark JSONL to Hugging Face Datasets |
+| `export_hf.py` | 38 | One-command export of either benchmark JSONL plus dataset card to Hugging Face |
+| `DATASET_CARD_DEV.md` | — | Hugging Face dataset card for the 56-row developer suite |
+| `DATASET_CARD_GIT.md` | — | Hugging Face dataset card for the 36-row Git-leak suite |
 | `dev_benchmark.jsonl` | — | 56 developer-native rows (configs, cURL, logs, SDKs, hard negatives) |
 | `git_leak_benchmark.jsonl` | — | Local-only 36-row real Git-artifact suite (generated; git-ignored) |

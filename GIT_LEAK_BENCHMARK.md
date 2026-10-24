@@ -3,6 +3,8 @@
 This suite measures `code-airlock` against **real Git artifacts** and the
 secret formats tracked by [Gitleaks](https://github.com/gitleaks/gitleaks).
 
+**Published dataset:** https://huggingface.co/datasets/sarthax/code-airlock-git-leaks
+
 ## Composition
 
 | Group | Rows | What it contains |
@@ -67,5 +69,5 @@ credentials that GitHub Push Protection (correctly) treats as secrets. Publish
 it to Hugging Face with `export_hf.py` instead:
 
 ```bash
-python export_hf.py --repo-id <user>/code-airlock-git-leaks --file git_leak_benchmark.jsonl
+python export_hf.py --repo-id sarthax/code-airlock-git-leaks --file git_leak_benchmark.jsonl --card DATASET_CARD_GIT.md
 ```
