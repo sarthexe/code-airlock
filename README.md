@@ -195,6 +195,6 @@ To ensure your coding agent actually leverages the airlock tools instead of raw 
 | `benchmark.py` | 133 | Strict/Partial overlap evaluator, p50/p95 latency timer, and hard-negative verifier |
 | `test_proxy.py` | 84 | End-to-end proxy tests (11-entity zero-leak check, 2-char SSE split rehydration, C++ syntax) |
 | `test_mcp.py` | 66 | MCP tool verification (`.env` $\rightarrow$ `config.json` zero-leak file migration & vault safety) |
-| `export_hf.py` | 22 | One-command export of either benchmark JSONL to Hugging Face Datasets |
+| `export_hf.py` | 31 | One-command export of either benchmark JSONL to Hugging Face Datasets |
 | `dev_benchmark.jsonl` | — | 56 developer-native rows (configs, cURL, logs, SDKs, hard negatives) |
 | `git_leak_benchmark.jsonl` | — | Local-only 36-row real Git-artifact suite (generated; git-ignored) |
