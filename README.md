@@ -7,7 +7,7 @@
 * **Dual Deployment Modes:** Run as a drop-in **OpenAI-compatible `/v1/chat/completions` reverse proxy** or as a **Model Context Protocol (MCP) server** (`stdio`) for OpenCode, Cursor, and Claude Code.
 * **2-Stage Hybrid Cascade:** Combines sub-millisecond deterministic regex + mathematical checksums (**Luhn, Verhoeff $D_5$, ISO 7064 MOD-97**) with contextual neural NER (`urchade/gliner_small-v2.1`) and a 93-term developer allowlist.
 * **Zero-Delay Streaming Rehydration:** Stateful sliding-window SSE parser reassembles split tokens across arbitrary 2-byte network chunks without delaying code comparison or bitwise operators (`<`, `<<`, `template <typename T>`).
-* **Minimalist Systems Footprint:** ~770 lines of flat, auditable Python across 7 files (`engine.py`, `sanitizer.py`, `proxy.py`, `mcp_server.py`, `benchmark.py`, and test suites).
+* **Minimalist Systems Footprint:** ~790 lines of flat, auditable Python across 7 core files (`engine.py`, `sanitizer.py`, `proxy.py`, `mcp_server.py`, `benchmark.py`, and test suites).
 
 ---
 
@@ -72,6 +72,22 @@ Evaluated on **285 developer prompts** (sampled from `CodeAlpaca_20K` and `OpenC
 
 * **Hard-Negative Suite:** **61/61 Passed** (100% rejection of non-Luhn 16-digit order IDs, Verhoeff-invalid 12-digit numbers, MOD-97-invalid IBANs, and `v192.168.1.300` version strings).
 * **Tech Allowlist Check:** **30/30 Passed** (`FastAPI`, `Docker`, `Kubernetes`, `Redis`, `Postgres`, `AWS`, `Heroku`, etc. produce zero false positives).
+
+---
+
+## 🧪 Developer & Git-Leak Benchmarks
+
+Two additional suites target real coding workflows instead of conversational PII:
+
+| Suite | Rows / Spans | Strict P / R / F1 | False positives on clean code |
+| :--- | :---: | :---: | :---: |
+| **`gold_set.jsonl`** (algorithm prompts + injected PII) | 285 / 744 | 96.7% / 99.1% / **97.9%** | 18 / 120 clean rows |
+| **`dev_benchmark.jsonl`** (configs, cURL, logs, SDKs) | 56 / 112 | 97.2% / 94.6% / **95.9%** | **0 / 33 clean rows** |
+| **`git_leak_benchmark.jsonl`** (real `git show` / `git diff` + Gitleaks formats) | 36 / 61 | 100% / 88.5% / **93.9%** | **0 / 3 clean rows** |
+
+- `dev_benchmark.jsonl` is committed and covers `.env` files, Docker/K8s/Terraform configs, cURL pipelines, production tracebacks, SDK initializers, and 33 hard-negative code blocks (C++ templates, bitwise operators, SHAs, UUIDs, invalid checksums).
+- `git_leak_benchmark.jsonl` is generated locally by `build_git_leak_benchmark.py` (git-ignored because it contains format-valid dummy credentials). It includes actual `git show` / `git diff --cached` output from Gitleaks' fixture repositories plus 22 long-tail token formats (Stripe, SendGrid, Square, Shopify, PyPI, Twilio, GitLab, Postman, 1Password, …). See [GIT_LEAK_BENCHMARK.md](GIT_LEAK_BENCHMARK.md) for the full breakdown and the remaining contextual false negatives.
+- Publish either suite to Hugging Face with `python export_hf.py --repo-id <user>/<dataset> [--file git_leak_benchmark.jsonl]`.
 
 ---
 
@@ -172,10 +188,13 @@ To ensure your coding agent actually leverages the airlock tools instead of raw 
 
 | File | Lines | Responsibility |
 | :--- | :---: | :--- |
-| `engine.py` | 183 | Stage 1 regex/checksum validators + Stage 2 GLiNER-small + `TECH_ALLOWLIST` + span merger |
+| `engine.py` | 199 | Stage 1 regex/checksum validators (incl. 20+ developer key formats) + Stage 2 GLiNER-small + `TECH_ALLOWLIST` + span merger |
 | `sanitizer.py` | 93 | Session-consistent `VaultSession` dehydrator + stateful `StreamRehydrator` SSE parser |
 | `proxy.py` | 143 | FastAPI `/v1/chat/completions` gateway with SSE streaming rehydration & telemetry headers |
 | `mcp_server.py` | 71 | FastMCP `stdio` server exposing 5 zero-leak text and file tools for agentic harnesses |
-| `benchmark.py` | 132 | Strict/Partial overlap evaluator, p50/p95 latency timer, and hard-negative verifier |
-| `test_proxy.py` | 85 | End-to-end proxy tests (11-entity zero-leak check, 2-char SSE split rehydration, C++ syntax) |
+| `benchmark.py` | 133 | Strict/Partial overlap evaluator, p50/p95 latency timer, and hard-negative verifier |
+| `test_proxy.py` | 84 | End-to-end proxy tests (11-entity zero-leak check, 2-char SSE split rehydration, C++ syntax) |
 | `test_mcp.py` | 66 | MCP tool verification (`.env` $\rightarrow$ `config.json` zero-leak file migration & vault safety) |
+| `export_hf.py` | 22 | One-command export of either benchmark JSONL to Hugging Face Datasets |
+| `dev_benchmark.jsonl` | — | 56 developer-native rows (configs, cURL, logs, SDKs, hard negatives) |
+| `git_leak_benchmark.jsonl` | — | Local-only 36-row real Git-artifact suite (generated; git-ignored) |

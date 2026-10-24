@@ -52,8 +52,13 @@ def is_valid_phone(phone: str) -> bool:
 EMAIL_RE = re.compile(r"\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b")
 API_KEY_RE = re.compile(
     r"\b(?:sk-(?:proj-|ant-|svcacct-|admin-)?[a-zA-Z0-9\-_]{20,}|AKIA[0-9A-Z]{16}|"
-    r"(?:ghp|gho|ghu|ghs|ghr)_[a-zA-Z0-9]{36}|github_pat_[a-zA-Z0-9_]{22,}|"
-    r"AIza[0-9A-Za-z\-_]{35}|xox[baprs]-[0-9a-zA-Z\-]{10,})\b"
+    r"(?:ghp|gho|ghu|ghs|ghr)_[a-zA-Z0-9]{36}|github_pat_[a-zA-Z0-9_]{22,}|AIza[0-9A-Za-z\-_]{35}|"
+    r"xox[baprs]-[0-9a-zA-Z\-]{10,}|(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{24,}|SG\.[A-Za-z0-9_\-]{16,32}\.[A-Za-z0-9_\-]{16,64}|"
+    r"glpat-[A-Za-z0-9_\-]{20,}|npm_[A-Za-z0-9]{36}|shp(?:at|ss|ca|pa)_[a-fA-F0-9]{32}|sq0(?:atp|csp)-[A-Za-z0-9_\-]{22,43}|"
+    r"pypi-AgEIcHlwaS5vcmc[A-Za-z0-9_\-]{50,1000}|SK[0-9a-f]{32}|key-[0-9a-z]{32}|access_token\$production\$[0-9a-z]{16}\$[0-9a-f]{32}|"
+    r"dt0c01\.[A-Z0-9]{24}\.[A-Z0-9]{64}|A3-[A-Z0-9]{6}-(?:[A-Z0-9]{11}|[A-Z0-9]{6}-[A-Z0-9]{5})-[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}|"
+    r"PMAK-[A-Za-z0-9]{24}-[A-Za-z0-9]{34}|nfp_[A-Za-z0-9]{40}|vercel_[A-Za-z0-9]{24,}|"
+    r"[0-9]{9,10}:[A-Za-z0-9_-]{35}|https://hooks\.slack\.com/services/T[A-Za-z0-9_]{8,}/B[A-Za-z0-9_]{8,}/[A-Za-z0-9_]{24,})\b"
 )
 AUTH_TOKEN_RE = re.compile(
     r"\b(?:eyJ[a-zA-Z0-9_-]{10,}\.eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}|"
@@ -96,6 +101,10 @@ PERSON_STOPWORDS = frozenset({
 })
 
 CODE_CHARS = frozenset("_()[]{}:;/\\=$@")
+SCHEMA_WORDS = frozenset({
+    "production", "development", "staging", "prod", "dev", "test", "localhost",
+    "api", "backend", "frontend", "database", "server", "client", "service", "origin",
+})
 
 def stage2_ok(text: str, label: str) -> bool:
     """Reject Stage 2 drift on code identifiers, tech names, and role words."""
@@ -103,15 +112,22 @@ def stage2_ok(text: str, label: str) -> bool:
     if len(t) <= 2: return False
     low = t.lower()
     if low in TECH_ALLOWLIST or low in {"location", "organization", "person", "address", "user"}: return False
+    if label in ("LOCATION", "ORGANIZATION") and low in SCHEMA_WORDS: return False
+    if label == "LOCATION" and re.fullmatch(r"[a-z]{2}(?:-[a-z]+)+-\d+", low): return False
+    if label == "ORGANIZATION" and re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)+", t): return False
     if label == "PERSON" and low in PERSON_STOPWORDS: return False
+    if label == "PERSON" and " " not in t and (len(t) > 25 or any(c.isdigit() for c in t) or sum(c.isupper() for c in t) / len(t) > 0.5): return False
     if any(ch in CODE_CHARS for ch in t) or (any(c.isdigit() for c in t) and "." in t): return False
     return True
 
 def spans_overlap(s1: Span, s2: Span) -> bool:
     return max(s1.start, s2.start) < min(s1.end, s2.end)
 
+LABEL_PRIORITY = {"API_KEY": 0, "AUTH_TOKEN": 0, "CREDIT_CARD": 0, "GOVT_ID": 0,
+                  "IBAN_CRYPTO": 0, "EMAIL": 1, "PHONE": 1, "IP_ADDRESS": 1}
+
 def _resolve_same_stage(spans: list[Span]) -> list[Span]:
-    sorted_spans = sorted(spans, key=lambda s: (-(s.end - s.start), -s.score, s.start))
+    sorted_spans = sorted(spans, key=lambda s: (LABEL_PRIORITY.get(s.label, 2), -(s.end - s.start), -s.score, s.start))
     accepted: list[Span] = []
     for cand in sorted_spans:
         if not any(spans_overlap(cand, ex) for ex in accepted):

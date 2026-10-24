@@ -8,3 +8,6 @@ secrets.out.json
 dist/
 build/
 *.egg-info/
+.git_leaks/
+git_leak_benchmark.jsonl
+build_git_leak_benchmark.py
