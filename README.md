@@ -7,8 +7,9 @@
 * **Dual Deployment Modes:** Run as a drop-in **OpenAI-compatible `/v1/chat/completions` reverse proxy** or as a **Model Context Protocol (MCP) server** (`stdio`) for OpenCode, Cursor, and Claude Code.
 * **2-Stage Hybrid Cascade:** Combines sub-millisecond deterministic regex + mathematical checksums (**Luhn, Verhoeff $D_5$, ISO 7064 MOD-97**) with contextual neural NER (`urchade/gliner_small-v2.1`) and a curated developer allowlist.
 * **Deterministic Secret Coverage:** Stage 1 also captures inline connection-string passwords and `PASSWORD` / `SECRET` / `ACCESS_TOKEN` / `API_KEY` assignments, excluding placeholders, booleans, function calls, and existing vault tokens.
+* **Git & CI Guardrails:** `code-airlock scan --staged` catches secrets in staged files at sub-millisecond Stage 1 speed, masks every value in output, and installs a `.git/hooks/pre-commit` gate via `init --pre-commit`.
 * **Zero-Delay Streaming Rehydration:** Stateful sliding-window SSE parser reassembles split tokens across arbitrary 2-byte network chunks without delaying code comparison or bitwise operators (`<`, `<<`, `template <typename T>`).
-* **Minimalist Systems Footprint:** ~600 lines of core runtime code (`src/code_airlock/engine.py`, `sanitizer.py`, `proxy.py`, `mcp_server.py`) plus a deterministic 2,000-row benchmark harness.
+* **Minimalist Systems Footprint:** ~700 lines of core runtime code (`src/code_airlock/engine.py`, `sanitizer.py`, `proxy.py`, `mcp_server.py`, `scanner.py`) plus a deterministic 2,000-row benchmark harness.
 
 ---
 
@@ -88,7 +89,7 @@ Evaluated on **285 developer prompts** (sampled from `CodeAlpaca_20K` and `OpenC
 | `adversarial_sse` | 250 | 250 | 0 / 0 | 1,217 |
 | **Total** | **2,000** | **1,400** | **350 / 250** | **5,817** |
 
-Reference result (strict exact-span matching, `code-airlock` v1.1.0):
+Reference result (strict exact-span matching, `code-airlock` v1.2.0):
 
 | Split | Strict P / R / F1 | Hard-neg | Clean 0-FP | SSE 1/2/7-byte |
 | :--- | :---: | :---: | :---: | :---: |
@@ -207,18 +208,39 @@ code-airlock-mcp
 ### Zero-Friction CLI
 
 ```bash
-python -m code_airlock doctor   # verify model cache, round-trip, print MCP config
-python -m code_airlock init     # add security rules to .cursorrules / CLAUDE.md
-python -m code_airlock proxy    # start the HTTP proxy
-python -m code_airlock          # start the MCP server (default)
+python -m code_airlock doctor              # model warmup + round-trip + MCP config
+python -m code_airlock init                # add rules to .cursorrules / CLAUDE.md
+python -m code_airlock init --pre-commit   # also install .git/hooks/pre-commit
+python -m code_airlock scan --staged       # fast Stage 1 scan of staged files
+python -m code_airlock scan --deep src/    # add GLiNER detection for a path
+python -m code_airlock proxy               # start the HTTP proxy
+python -m code_airlock                     # start the MCP server (default)
 ```
 
 Installed entrypoints: `code-airlock-mcp`, `code-airlock-proxy`, and the
 backward-compatible `code-airlock` alias.
 
-`doctor` warms the model and checks an API key, inline URI password, email, and
-person name. `init` is idempotent. MCP/proxy startup no longer downloads or
-loads GLiNER; the model is loaded on the first detection request.
+`scan` skips binaries, files over 1 MB, `tests/`, and benchmark fixtures. It
+prints `file:line -> [CATEGORY] masked-preview` and exits `1` when secrets are
+found, so it works unchanged in CI and Git hooks. `--deep` enables Stage 2 NER;
+the default Stage 1 path is sub-millisecond. `init` is idempotent, and
+`init --pre-commit` installs a hook that runs `python -m code_airlock scan --staged`.
+
+### 🧰 MCP Tools
+
+| Tool | Purpose |
+| :--- | :--- |
+| `airlock_read_file` | Read a bounded UTF-8 file through the vault; blocks `.ssh`, `.aws`, `.gnupg`, `.kube`, `/etc`, `System32`, `AIRLOCK_WORKSPACE` escapes, binaries, and files over 1 MB. |
+| `airlock_write_file` | Rehydrate locally and write; refuses to write if unresolved/hallucinated `<ENTITY_N>` tokens remain. |
+| `airlock_scrub_text` | Redact arbitrary in-memory text or terminal output; `use_ner=False` forces the fast Stage 1 path. |
+| `airlock_vault_status` | Return active token keys and per-category counts only; never raw values. |
+| `airlock_dehydrate` | Redact text and return session-stable tokens. |
+| `airlock_rehydrate` | Restore canonical, case-mangled, or whitespace-padded vault tokens. |
+
+All file tools resolve paths with `Path.expanduser().resolve()` and jail access
+to `AIRLOCK_WORKSPACE` when that variable is set. Rehydration is tolerant of
+`<api_key_1>` / `< API_KEY_1 >`, while the SSE `StreamRehydrator` remains
+zero-delay and exact.
 
 ---
 
@@ -258,11 +280,12 @@ To ensure your coding agent actually leverages the airlock tools instead of raw 
 | `src/code_airlock/engine.py` | 219 | Stage 1 regex/checksum validators + high-entropy URI/KV secrets + lazy Stage 2 GLiNER |
 | `src/code_airlock/sanitizer.py` | 108 | Vault hygiene, tolerant rehydration, unresolved-token detection, SSE parser |
 | `src/code_airlock/proxy.py` | 153 | FastAPI `/v1/chat/completions` gateway, SSE rehydration, telemetry headers, `main()` |
-| `src/code_airlock/mcp_server.py` | 111 | FastMCP server with path jailing, file guardrails, and write verification |
+| `src/code_airlock/mcp_server.py` | 117 | FastMCP server with path jailing, file guardrails, `airlock_scrub_text`, and write verification |
+| `src/code_airlock/scanner.py` | 76 | Masked Stage-1/Stage-2 Git and path secret scanner |
 | `src/code_airlock/__init__.py` | 7 | Public API: `CascadeEngine`, `VaultSession`, `StreamRehydrator`, `__version__` |
-| `src/code_airlock/__main__.py` | 85 | CLI: `mcp`, `proxy`, `doctor`, `init` |
+| `src/code_airlock/__main__.py` | 111 | CLI: `mcp`, `proxy`, `doctor`, `init`, `scan` |
 | `tests/test_proxy.py` | 84 | End-to-end proxy tests (11-entity zero-leak check, 2-char SSE split, C++ syntax) |
-| `tests/test_mcp.py` | 107 | MCP tools, file jail, unresolved tokens, repr safety, tolerant rehydration |
+| `tests/test_mcp.py` | 145 | MCP tools, scanner, pre-commit hook, file jail, unresolved tokens, tolerant rehydration |
 | `benchmarks/benchmark.py` | 163 | Unified 4-suite evaluator → `benchmarks/BENCHMARK_RESULTS.md` |
 | `benchmarks/build_benchmarks.py` | 239 | Deterministic 2,000-row generator (`seed=42`) |
 | `benchmarks/export_hf.py` | 88 | Publishes all 4 splits plus the auto-generated dataset card |
@@ -285,6 +308,10 @@ The MCP file tools additionally block sensitive directories (`~/.ssh`, `~/.aws`,
 `~/.gnupg`, `~/.kube`, `/etc`, `System32`), files over 1 MB, binary files, and
 paths outside `AIRLOCK_WORKSPACE` when that variable is set. Writes containing
 unresolved or hallucinated `<ENTITY_N>` tokens are refused.
+
+`code-airlock scan --staged` adds a Git pre-commit gate for the five highest-risk
+secret categories (`API_KEY`, `AUTH_TOKEN`, `CREDIT_CARD`, `GOVT_ID`,
+`IBAN_CRYPTO`). It prints masked previews only and exits non-zero on findings.
 
 ## 📜 License
 

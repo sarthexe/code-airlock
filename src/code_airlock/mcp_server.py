@@ -36,9 +36,9 @@ def _validate_path(file_path: str) -> Path:
     return path
 
 
-def _dehydrate(text: str) -> dict:
+def _dehydrate(text: str, use_ner: bool = True) -> dict:
     started = time.perf_counter()
-    spans = ENGINE.detect(text)
+    spans = ENGINE.detect(text, use_ner=use_ner)
     sanitized, _ = VAULT.dehydrate(text, spans)
     tokens = list(dict.fromkeys(TOKEN_RE.findall(sanitized)))
     return {"sanitized_text": sanitized, "redacted_count": len(spans),
@@ -49,6 +49,12 @@ def _dehydrate(text: str) -> dict:
 def airlock_dehydrate(text: str) -> dict:
     """Redact PII from text and return session-stable tokens."""
     return _dehydrate(text)
+
+
+@mcp.tool()
+def airlock_scrub_text(text: str, use_ner: bool = True) -> dict:
+    """Scrub arbitrary in-memory text, optionally with Stage-1-only speed."""
+    return _dehydrate(text, use_ner=use_ner)
 
 
 @mcp.tool()

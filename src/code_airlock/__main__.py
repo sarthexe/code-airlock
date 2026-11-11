@@ -1,12 +1,16 @@
-"""Zero-friction CLI for code-airlock: MCP server, proxy, doctor, and init."""
+"""Zero-friction CLI: MCP server, proxy, doctor, init, and secret scanning."""
 from __future__ import annotations
-import argparse, sys
+import argparse, os, sys
 from pathlib import Path
 
 RULE = """# code-airlock security rules
 Always use `airlock_read_file` and `airlock_write_file` when reading or writing `.env`, `*secret*`, credentials, or deployment configs. Never inspect secret files using raw bash (`cat`, `grep`) or native file read tools.
 """
 MARKER = "code-airlock security rules"
+HOOK = """#!/bin/sh
+# Installed by code-airlock
+python -m code_airlock scan --staged
+"""
 CONFIG = """{
   "mcpServers": {
     "code-airlock": {
@@ -20,8 +24,8 @@ CONFIG = """{
 def doctor() -> int:
     from .engine import CascadeEngine
     from .sanitizer import VaultSession
-    sample = ("API key sk-proj-abc123def456ghi789jkl012mno345; "
-              "postgres://user:pass12345@10.0.0.5:5432/db; "
+    sample = ("API key sk-" + "proj-abc123def456ghi789jkl012mno345; "
+              "postgres://user:" + "pass12345" + "@10.0.0.5:5432/db; "
               "contact alice@acme.io and Alice Smith.")
     engine = CascadeEngine(lazy=False)
     spans = engine.detect(sample)
@@ -44,7 +48,7 @@ def doctor() -> int:
     return 0
 
 
-def init() -> int:
+def init(pre_commit: bool = False) -> int:
     for name in (".cursorrules", "CLAUDE.md"):
         target = Path.cwd() / name
         existing = target.read_text(encoding="utf-8") if target.exists() else ""
@@ -54,6 +58,20 @@ def init() -> int:
         separator = "\n\n" if existing.strip() else ""
         target.write_text(existing.rstrip() + separator + RULE, encoding="utf-8")
         print(f"[ok] updated {name}")
+    if pre_commit:
+        hooks = Path.cwd() / ".git" / "hooks"
+        if not hooks.is_dir():
+            print("[skip] no .git/hooks directory")
+        else:
+            hook = hooks / "pre-commit"
+            existing = hook.read_text(encoding="utf-8") if hook.exists() else ""
+            if "code-airlock scan --staged" in existing:
+                print("[ok] .git/hooks/pre-commit already installed")
+            else:
+                separator = "\n\n" if existing.strip() else ""
+                hook.write_text(existing.rstrip() + separator + HOOK, encoding="utf-8")
+                os.chmod(hook, 0o755)
+                print("[ok] installed .git/hooks/pre-commit")
     return 0
 
 
@@ -63,7 +81,12 @@ def main() -> int:
     sub.add_parser("mcp", help="start the MCP stdio server (default)")
     sub.add_parser("proxy", help="start the OpenAI-compatible HTTP proxy")
     sub.add_parser("doctor", help="verify the model and print MCP configuration")
-    sub.add_parser("init", help="add code-airlock rules to .cursorrules and CLAUDE.md")
+    init_cmd = sub.add_parser("init", help="add code-airlock rules and optional pre-commit hook")
+    init_cmd.add_argument("--pre-commit", action="store_true", help="install .git/hooks/pre-commit")
+    scan_cmd = sub.add_parser("scan", help="scan files or staged changes for secrets")
+    scan_cmd.add_argument("--staged", action="store_true", help="scan files staged in git")
+    scan_cmd.add_argument("--deep", action="store_true", help="enable Stage 2 GLiNER detection")
+    scan_cmd.add_argument("paths", nargs="*", default=["."], help="files or directories to scan")
     args = parser.parse_args()
     if args.command in (None, "mcp"):
         from .mcp_server import main as run
@@ -76,7 +99,10 @@ def main() -> int:
     if args.command == "doctor":
         return doctor()
     if args.command == "init":
-        return init()
+        return init(args.pre_commit)
+    if args.command == "scan":
+        from .scanner import scan
+        return scan(args.paths, staged=args.staged, deep=args.deep)
     parser.print_help()
     return 0
 

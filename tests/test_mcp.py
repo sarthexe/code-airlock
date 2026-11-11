@@ -1,7 +1,9 @@
 """test_mcp.py - End-to-end harness workflow verification for the MCP server."""
 import json
+import sys
 from pathlib import Path
 import pytest
+from code_airlock import __main__ as cli
 from code_airlock import mcp_server as airlock
 
 OPENAI = "sk-abcdefghijklmnopqrstuvwxyz123456"
@@ -105,3 +107,39 @@ def test_case_insensitive_rehydration():
         result = airlock.airlock_rehydrate(first["sanitized_text"].replace("<API_KEY_1>", variant))
         assert result["rehydrated_text"] == text
         assert result["restored_count"] == 1
+
+
+def test_scrub_text_tracks_tokens():
+    result = airlock.airlock_scrub_text(f"secret {OPENAI}", use_ner=False)
+    assert OPENAI not in result["sanitized_text"]
+    assert result["tokens"] == ["<API_KEY_1>"]
+    assert airlock.VAULT.vault["<API_KEY_1>"] == OPENAI
+
+
+def test_scan_command_detects_secret(tmp_path, monkeypatch, capsys):
+    target = tmp_path / "leak.txt"
+    target.write_text(f"key={OPENAI}\n", encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["code-airlock", "scan", str(target)])
+    assert cli.main() == 1
+    output = capsys.readouterr().out
+    assert "[API_KEY]" in output
+    assert OPENAI not in output
+
+
+def test_scan_command_clean(tmp_path, monkeypatch, capsys):
+    target = tmp_path / "clean.py"
+    target.write_text("print('hello')\n", encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["code-airlock", "scan", str(target)])
+    assert cli.main() == 0
+    assert "0 secrets detected across 1 files" in capsys.readouterr().out
+
+
+def test_init_installs_pre_commit_hook(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    (repo / ".git" / "hooks").mkdir(parents=True)
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(sys, "argv", ["code-airlock", "init", "--pre-commit"])
+    assert cli.main() == 0
+    hook = repo / ".git" / "hooks" / "pre-commit"
+    assert hook.exists()
+    assert "python -m code_airlock scan --staged" in hook.read_text(encoding="utf-8")

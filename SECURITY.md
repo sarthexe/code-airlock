@@ -40,6 +40,8 @@ fix and coordinated disclosure before publishing details.
   `/etc`, `System32`), files over 1 MB, binary files, and paths outside
   `AIRLOCK_WORKSPACE` when set. Writes with unresolved `<ENTITY_N>` tokens are
   refused.
+- `code-airlock scan --staged` gates the five highest-risk secret categories in
+  Git hooks and CI; output is masked and the command exits non-zero on findings.
 - Known gaps include contextual SaaS tokens (e.g. some Heroku/Mailchimp
   formats), PEM bodies beyond the header line, and statistical NER misses.
 
