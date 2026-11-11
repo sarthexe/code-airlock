@@ -153,6 +153,7 @@ def main():
         subprocess.run([sys.executable, os.path.join(BASE, "build_benchmarks.py")], check=True)
     chosen = SUITES if args.suite == "all" else [args.suite]
     engine = CascadeEngine()
+    engine.detect("Warmup Alice Smith at Acme in Berlin.", use_ner=True)
     results = {s: evaluate(load(s), engine) for s in chosen}
     total = combine(list(results.values()))
     text = report(results, total)

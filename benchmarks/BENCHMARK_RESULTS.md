@@ -16,9 +16,9 @@ Metrics only. No raw credentials or PII values are included.
 
 | Stage | p50 | p95 |
 | :--- | ---: | ---: |
-| Stage 1 (deterministic) | 0.194 ms | 0.355 ms |
-| Stage 2 (GLiNER) | 30.349 ms | 39.391 ms |
-| Total cascade | 30.391 ms | 39.554 ms |
+| Stage 1 (deterministic) | 0.232 ms | 0.428 ms |
+| Stage 2 (GLiNER) | 32.354 ms | 43.966 ms |
+| Total cascade | 32.704 ms | 44.112 ms |
 
 ## Per-Entity Support & Metrics
 

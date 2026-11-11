@@ -36,6 +36,10 @@ fix and coordinated disclosure before publishing details.
 - The session vault is in-memory and process-scoped; restarting the MCP server
   invalidates old tokens by design.
 - The MCP tools never return raw vault values from `airlock_vault_status`.
+- MCP file tools block sensitive directories (`.ssh`, `.aws`, `.gnupg`, `.kube`,
+  `/etc`, `System32`), files over 1 MB, binary files, and paths outside
+  `AIRLOCK_WORKSPACE` when set. Writes with unresolved `<ENTITY_N>` tokens are
+  refused.
 - Known gaps include contextual SaaS tokens (e.g. some Heroku/Mailchimp
   formats), PEM bodies beyond the header line, and statistical NER misses.
 

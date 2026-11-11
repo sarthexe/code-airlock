@@ -7,7 +7,7 @@
 * **Dual Deployment Modes:** Run as a drop-in **OpenAI-compatible `/v1/chat/completions` reverse proxy** or as a **Model Context Protocol (MCP) server** (`stdio`) for OpenCode, Cursor, and Claude Code.
 * **2-Stage Hybrid Cascade:** Combines sub-millisecond deterministic regex + mathematical checksums (**Luhn, Verhoeff $D_5$, ISO 7064 MOD-97**) with contextual neural NER (`urchade/gliner_small-v2.1`) and a curated developer allowlist.
 * **Zero-Delay Streaming Rehydration:** Stateful sliding-window SSE parser reassembles split tokens across arbitrary 2-byte network chunks without delaying code comparison or bitwise operators (`<`, `<<`, `template <typename T>`).
-* **Minimalist Systems Footprint:** ~500 lines of core runtime code (`src/code_airlock/engine.py`, `sanitizer.py`, `proxy.py`, `mcp_server.py`) plus a deterministic 2,000-row benchmark harness.
+* **Minimalist Systems Footprint:** ~600 lines of core runtime code (`src/code_airlock/engine.py`, `sanitizer.py`, `proxy.py`, `mcp_server.py`) plus a deterministic 2,000-row benchmark harness.
 
 ---
 
@@ -87,7 +87,7 @@ Evaluated on **285 developer prompts** (sampled from `CodeAlpaca_20K` and `OpenC
 | `adversarial_sse` | 250 | 250 | 0 / 0 | 1,217 |
 | **Total** | **2,000** | **1,400** | **350 / 250** | **5,817** |
 
-Reference result (strict exact-span matching, `code-airlock` v0.1.0):
+Reference result (strict exact-span matching, `code-airlock` v1.1.0):
 
 | Split | Strict P / R / F1 | Hard-neg | Clean 0-FP | SSE 1/2/7-byte |
 | :--- | :---: | :---: | :---: | :---: |
@@ -97,7 +97,7 @@ Reference result (strict exact-span matching, `code-airlock` v0.1.0):
 | `adversarial_sse` | 100% / 100% / 100% | — | — | 250/250 |
 | **Combined** | **100% / 100% / 100%** | **250/250** | **350/350** | **2000/2000** |
 
-- Latency: **0.194 ms** p50 / 0.355 ms p95 Stage 1; **30.349 ms** p50 / 39.391 ms p95 Stage 2; **30.391 ms** p50 / 39.554 ms p95 total cascade.
+- Latency: **0.232 ms** p50 / 0.428 ms p95 Stage 1; **32.354 ms** p50 / 43.966 ms p95 Stage 2; **32.704 ms** p50 / 44.112 ms p95 total cascade.
 - Per-entity support: `API_KEY` 756, `AUTH_TOKEN` 467, `CREDIT_CARD` 440, `EMAIL` 754, `PHONE` 465, `IP_ADDRESS` 442, `GOVT_ID` 465, `IBAN_CRYPTO` 465, `PERSON` 729, `ORGANIZATION` 417, `LOCATION` 417. Every entity is at **100% P/R/F1**.
 - Invariants: MCP JSON parse **100/100**, JSON round-trip **100/100**, adversarial SSE **2,000/2,000**, hard negatives **250/250**, clean rows **350/350 with zero false positives**.
 
@@ -203,6 +203,22 @@ python -m code_airlock
 code-airlock-mcp
 ```
 
+### Zero-Friction CLI
+
+```bash
+python -m code_airlock doctor   # verify model cache, round-trip, print MCP config
+python -m code_airlock init     # add security rules to .cursorrules / CLAUDE.md
+python -m code_airlock proxy    # start the HTTP proxy
+python -m code_airlock          # start the MCP server (default)
+```
+
+Installed entrypoints: `code-airlock-mcp`, `code-airlock-proxy`, and the
+backward-compatible `code-airlock` alias.
+
+`doctor` warms the model and checks an API key, inline URI password, email, and
+person name. `init` is idempotent. MCP/proxy startup no longer downloads or
+loads GLiNER; the model is loaded on the first detection request.
+
 ---
 
 ### Option 3: OpenAI-Compatible Reverse Proxy (`/v1/chat/completions`)
@@ -238,15 +254,15 @@ To ensure your coding agent actually leverages the airlock tools instead of raw 
 
 | File | Lines | Responsibility |
 | :--- | :---: | :--- |
-| `src/code_airlock/engine.py` | 199 | Stage 1 regex/checksum validators (incl. 20+ developer key formats) + Stage 2 GLiNER-small + `TECH_ALLOWLIST` + span merger |
-| `src/code_airlock/sanitizer.py` | 93 | Session-consistent `VaultSession` dehydrator + stateful `StreamRehydrator` SSE parser |
+| `src/code_airlock/engine.py` | 219 | Stage 1 regex/checksum validators + high-entropy URI/KV secrets + lazy Stage 2 GLiNER |
+| `src/code_airlock/sanitizer.py` | 108 | Vault hygiene, tolerant rehydration, unresolved-token detection, SSE parser |
 | `src/code_airlock/proxy.py` | 153 | FastAPI `/v1/chat/completions` gateway, SSE rehydration, telemetry headers, `main()` |
-| `src/code_airlock/mcp_server.py` | 71 | FastMCP `stdio` server exposing 5 zero-leak text and file tools |
+| `src/code_airlock/mcp_server.py` | 111 | FastMCP server with path jailing, file guardrails, and write verification |
 | `src/code_airlock/__init__.py` | 7 | Public API: `CascadeEngine`, `VaultSession`, `StreamRehydrator`, `__version__` |
-| `src/code_airlock/__main__.py` | 6 | `python -m code_airlock` → MCP server |
+| `src/code_airlock/__main__.py` | 85 | CLI: `mcp`, `proxy`, `doctor`, `init` |
 | `tests/test_proxy.py` | 84 | End-to-end proxy tests (11-entity zero-leak check, 2-char SSE split, C++ syntax) |
-| `tests/test_mcp.py` | 66 | MCP tool verification (`.env` → `config.json` zero-leak migration) |
-| `benchmarks/benchmark.py` | 162 | Unified 4-suite evaluator → `benchmarks/BENCHMARK_RESULTS.md` |
+| `tests/test_mcp.py` | 107 | MCP tools, file jail, unresolved tokens, repr safety, tolerant rehydration |
+| `benchmarks/benchmark.py` | 163 | Unified 4-suite evaluator → `benchmarks/BENCHMARK_RESULTS.md` |
 | `benchmarks/build_benchmarks.py` | 239 | Deterministic 2,000-row generator (`seed=42`) |
 | `benchmarks/export_hf.py` | 88 | Publishes all 4 splits plus the auto-generated dataset card |
 | `benchmarks/BENCHMARK_RESULTS.md` | — | Generated metrics-only scorecard |
@@ -263,6 +279,11 @@ To ensure your coding agent actually leverages the airlock tools instead of raw 
 Detection is best-effort and local-only. It reduces exposure but is not a
 guarantee that every secret is removed. See [SECURITY.md](SECURITY.md) for the
 threat model, known gaps, and private disclosure instructions.
+
+The MCP file tools additionally block sensitive directories (`~/.ssh`, `~/.aws`,
+`~/.gnupg`, `~/.kube`, `/etc`, `System32`), files over 1 MB, binary files, and
+paths outside `AIRLOCK_WORKSPACE` when that variable is set. Writes containing
+unresolved or hallucinated `<ENTITY_N>` tokens are refused.
 
 ## 📜 License
 

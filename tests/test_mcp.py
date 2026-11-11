@@ -1,5 +1,6 @@
 """test_mcp.py - End-to-end harness workflow verification for the MCP server."""
 import json
+from pathlib import Path
 import pytest
 from code_airlock import mcp_server as airlock
 
@@ -9,7 +10,8 @@ EMAIL = "ops@northwind.example"
 
 
 @pytest.fixture(autouse=True)
-def fresh_vault():
+def fresh_vault(monkeypatch):
+    monkeypatch.delenv("AIRLOCK_WORKSPACE", raising=False)
     airlock.VAULT = airlock.VaultSession()
     yield
 
@@ -64,3 +66,42 @@ def test_vault_status_safety():
     assert status["counts"]["API_KEY"] == 1
     for secret in ("Bob Jones", "bob@acme.io", OPENAI):
         assert secret not in blob
+
+
+def test_inline_and_key_value_secrets_roundtrip():
+    text = "postgres://user:pass12345@192.168.1.1:5432/db WEBHOOK_SECRET=whsec_abc12345"
+    first = airlock.airlock_dehydrate(text)
+    sanitized = first["sanitized_text"]
+    assert "pass12345" not in sanitized
+    assert "whsec_abc12345" not in sanitized
+    assert airlock.airlock_rehydrate(sanitized)["rehydrated_text"] == text
+
+
+def test_write_blocks_unresolved_tokens(tmp_path):
+    target = tmp_path / "output.txt"
+    result = airlock.airlock_write_file(str(target), "key=<API_KEY_999>")
+    assert result["status"] == "error"
+    assert result["unresolved_tokens"] == ["<API_KEY_999>"]
+    assert not target.exists()
+
+
+def test_path_traversal_blocked():
+    with pytest.raises(ValueError, match="sensitive"):
+        airlock.airlock_read_file(str(Path.home() / ".ssh" / "id_rsa"))
+
+
+def test_repr_never_exposes_secrets():
+    airlock.airlock_dehydrate(f"key {OPENAI}")
+    rendered = repr(airlock.VAULT)
+    assert "active_tokens=1" in rendered
+    assert OPENAI not in rendered
+    assert str(airlock.VAULT) == rendered
+
+
+def test_case_insensitive_rehydration():
+    text = f"key {OPENAI}"
+    first = airlock.airlock_dehydrate(text)
+    for variant in ("<api_key_1>", "< API_KEY_1 >"):
+        result = airlock.airlock_rehydrate(first["sanitized_text"].replace("<API_KEY_1>", variant))
+        assert result["rehydrated_text"] == text
+        assert result["restored_count"] == 1

@@ -2,8 +2,6 @@
 from __future__ import annotations
 import re
 from dataclasses import dataclass
-import torch
-from gliner import GLiNER
 
 @dataclass(frozen=True)
 class Span:
@@ -77,6 +75,11 @@ PAN_RE = re.compile(r"\b[A-Z]{5}[0-9]{4}[A-Z]\b")
 AADHAAR_RE = re.compile(r"\b[2-9]\d{3}[ -]?\d{4}[ -]?\d{4}\b")
 ETH_RE = re.compile(r"\b0x[a-fA-F0-9]{40}\b")
 IBAN_RE = re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b")
+URI_PASSWORD_RE = re.compile(r"://[^:\s/@]+:([^@\s/:]{8,})@")
+KV_SECRET_RE = re.compile(r"(?i)(?:PASSWORD|PASSWD|SECRET_KEY|SECRET|PRIVATE_KEY|ACCESS_TOKEN|AUTH_TOKEN|API_KEY)\s*[=:]\s*[\"']?([^\s\"'\r\n#;,]{8,})[\"']?")
+
+def _secret_ok(value: str) -> bool:
+    return value.lower() not in {"true", "false", "null", "none", "changeme", "localhost"} and not value.startswith(("<", "$", "{")) and not any(c in value for c in "(){}") and len(set(value)) > 2
 
 TECH_ALLOWLIST = frozenset({
     "docker", "redis", "fastapi", "pytorch", "react", "aws", "postgres", "postgresql",
@@ -157,18 +160,33 @@ def merge_spans(stage1_spans: list[Span], stage2_spans: list[Span]) -> list[Span
     return sorted(s1 + s2, key=lambda s: s.start)
 
 class CascadeEngine:
-    def __init__(self, device: str | None = None, model_name: str = "urchade/gliner_small-v2.1", threshold: float = 0.5):
-        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+    def __init__(self, device: str | None = None, model_name: str = "urchade/gliner_small-v2.1",
+                 threshold: float = 0.5, lazy: bool = True):
+        self.device = device
+        self.model_name = model_name
         self.threshold = threshold
-        self.gliner = GLiNER.from_pretrained(model_name)
-        if hasattr(self.gliner, "to"): self.gliner.to(self.device)
         self.label_map = {"person": "PERSON", "organization": "ORGANIZATION", "location": "LOCATION"}
+        self._ner_model = None
+        if not lazy: self._get_ner()
+
+    def _get_ner(self):
+        if self._ner_model is None:
+            import torch
+            from gliner import GLiNER
+            self.device = self.device or ("cuda" if torch.cuda.is_available() else "cpu")
+            self._ner_model = GLiNER.from_pretrained(self.model_name)
+            if hasattr(self._ner_model, "to"): self._ner_model.to(self.device)
+        return self._ner_model
 
     def detect_stage1(self, text: str) -> list[Span]:
         spans: list[Span] = []
         for m in EMAIL_RE.finditer(text): spans.append(Span(m.start(), m.end(), "EMAIL", m.group(), 1.0, "stage1"))
         for m in API_KEY_RE.finditer(text): spans.append(Span(m.start(), m.end(), "API_KEY", m.group(), 1.0, "stage1"))
         for m in AUTH_TOKEN_RE.finditer(text): spans.append(Span(m.start(), m.end(), "AUTH_TOKEN", m.group(), 1.0, "stage1"))
+        for m in URI_PASSWORD_RE.finditer(text):
+            if _secret_ok(m.group(1)): spans.append(Span(m.start(1), m.end(1), "AUTH_TOKEN", m.group(1), 1.0, "stage1"))
+        for m in KV_SECRET_RE.finditer(text):
+            if _secret_ok(m.group(1)): spans.append(Span(m.start(1), m.end(1), "API_KEY", m.group(1), 1.0, "stage1"))
         for m in PHONE_RE.finditer(text):
             if is_valid_phone(m.group()): spans.append(Span(m.start(), m.end(), "PHONE", m.group(), 1.0, "stage1"))
         for m in IPV4_CAND_RE.finditer(text):
@@ -185,7 +203,8 @@ class CascadeEngine:
         return _resolve_same_stage(spans)
 
     def detect_stage2(self, text: str) -> list[Span]:
-        preds = self.gliner.predict_entities(text, ["person", "organization", "location"], threshold=self.threshold)
+        model = self._get_ner()
+        preds = model.predict_entities(text, ["person", "organization", "location"], threshold=self.threshold)
         raw_spans: list[Span] = []
         for p in preds:
             lbl = self.label_map.get(p["label"], p["label"].upper())
@@ -195,5 +214,6 @@ class CascadeEngine:
         resolved_sorted = sorted(resolved, key=lambda s: s.start)
         return merge_adjacent_locations(resolved_sorted, text)
 
-    def detect(self, text: str) -> list[Span]:
-        return merge_spans(self.detect_stage1(text), self.detect_stage2(text))
+    def detect(self, text: str, use_ner: bool = True) -> list[Span]:
+        stage1 = self.detect_stage1(text)
+        return merge_spans(stage1, self.detect_stage2(text)) if use_ner else stage1
