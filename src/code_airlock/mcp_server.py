@@ -2,8 +2,8 @@
 from __future__ import annotations
 import re, time
 from mcp.server.fastmcp import FastMCP
-from engine import CascadeEngine
-from sanitizer import StreamRehydrator, VaultSession
+from .engine import CascadeEngine
+from .sanitizer import StreamRehydrator, VaultSession
 
 mcp = FastMCP("code-airlock")
 ENGINE = CascadeEngine()

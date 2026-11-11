@@ -2,13 +2,14 @@
 from __future__ import annotations
 import argparse, json, os, subprocess, sys, time, warnings
 from collections import defaultdict
+from pathlib import Path
 import numpy as np
-from engine import CascadeEngine
-from sanitizer import StreamRehydrator, VaultSession
+from code_airlock.engine import CascadeEngine
+from code_airlock.sanitizer import StreamRehydrator, VaultSession
 
 warnings.filterwarnings("ignore")
-BASE = os.path.dirname(os.path.abspath(__file__))
-BENCH = os.path.join(BASE, "benchmarks")
+BASE = Path(__file__).resolve().parent
+BENCH = BASE
 SUITES = ["dev_prompts", "git_leaks", "mcp_configs", "adversarial_sse"]
 LABELS = ["API_KEY", "AUTH_TOKEN", "CREDIT_CARD", "EMAIL", "PHONE", "IP_ADDRESS",
           "GOVT_ID", "IBAN_CRYPTO", "PERSON", "ORGANIZATION", "LOCATION"]

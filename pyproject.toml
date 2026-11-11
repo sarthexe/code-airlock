@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "code-airlock"
-version = "0.1.0"
+version = "1.0.0"
 description = "Low-latency OpenAI-compatible PII redaction gateway and FastMCP server for coding agents"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -44,10 +44,13 @@ Issues = "https://github.com/sarthexe/code-airlock/issues"
 Dataset = "https://huggingface.co/datasets/sarthax/pii-airlock-bench"
 
 [project.scripts]
-code-airlock = "mcp_server:main"
+code-airlock = "code_airlock.mcp_server:main"
+code-airlock-mcp = "code_airlock.mcp_server:main"
+code-airlock-proxy = "code_airlock.proxy:main"
 
-[tool.setuptools]
-py-modules = ["mcp_server", "engine", "sanitizer", "proxy", "benchmark"]
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.pytest.ini_options]
-testpaths = ["test_proxy.py", "test_mcp.py"]
+testpaths = ["tests"]
+pythonpath = ["src"]

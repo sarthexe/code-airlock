@@ -24,6 +24,10 @@ benchmarks/*.jsonl
 secrets.out.json
 *.log
 
+# Local agent configuration
+opencode.json
+.opencode/
+
 # Editors and OS
 .idea/
 .vscode/

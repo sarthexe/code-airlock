@@ -1,9 +1,10 @@
 """export_hf.py - Publish the 4-split Code-Airlock benchmark to Hugging Face."""
 import argparse, json, os, subprocess, sys
+from pathlib import Path
 from datasets import Dataset, DatasetDict, Features, Sequence, Value
 from huggingface_hub import CommitOperationAdd, HfApi, whoami
 
-BASE = os.path.dirname(os.path.abspath(__file__))
+BASE = Path(__file__).resolve().parent
 SUITES = ["dev_prompts", "git_leaks", "mcp_configs", "adversarial_sse"]
 DISCLAIMER = (
     "> **Disclaimer:** All credentials, secrets, and PII spans in this dataset are "
@@ -18,7 +19,7 @@ META = Features({
 })
 
 def load(split):
-    with open(os.path.join(BASE, "benchmarks", f"{split}.jsonl"), encoding="utf-8") as f:
+    with open(os.path.join(BASE, f"{split}.jsonl"), encoding="utf-8") as f:
         return [json.loads(line) for line in f if line.strip()]
 
 def normalize(row):
@@ -59,7 +60,7 @@ def make_card(data):
         "## Usage", "", "```python", "from datasets import load_dataset",
         'ds = load_dataset("sarthax/pii-airlock-bench")', "print(ds)", "```", "",
         "## Links", "", "- Code: https://github.com/sarthexe/code-airlock",
-        "- Results: https://github.com/sarthexe/code-airlock/blob/main/BENCHMARK_RESULTS.md", "",
+        "- Results: https://github.com/sarthexe/code-airlock/blob/main/benchmarks/BENCHMARK_RESULTS.md", "",
     ]
     return "\n".join(lines)
 
@@ -69,7 +70,7 @@ def main():
     parser.add_argument("--token", default=None)
     args = parser.parse_args()
     token = args.token or os.environ.get("HF_TOKEN")
-    missing = [s for s in SUITES if not os.path.exists(os.path.join(BASE, "benchmarks", f"{s}.jsonl"))]
+    missing = [s for s in SUITES if not os.path.exists(os.path.join(BASE, f"{s}.jsonl"))]
     if missing:
         subprocess.run([sys.executable, os.path.join(BASE, "build_benchmarks.py")], check=True)
     me = whoami(token=token)["name"]

@@ -7,7 +7,7 @@
 * **Dual Deployment Modes:** Run as a drop-in **OpenAI-compatible `/v1/chat/completions` reverse proxy** or as a **Model Context Protocol (MCP) server** (`stdio`) for OpenCode, Cursor, and Claude Code.
 * **2-Stage Hybrid Cascade:** Combines sub-millisecond deterministic regex + mathematical checksums (**Luhn, Verhoeff $D_5$, ISO 7064 MOD-97**) with contextual neural NER (`urchade/gliner_small-v2.1`) and a curated developer allowlist.
 * **Zero-Delay Streaming Rehydration:** Stateful sliding-window SSE parser reassembles split tokens across arbitrary 2-byte network chunks without delaying code comparison or bitwise operators (`<`, `<<`, `template <typename T>`).
-* **Minimalist Systems Footprint:** ~500 lines of core runtime code (`engine.py`, `sanitizer.py`, `proxy.py`, `mcp_server.py`) plus a deterministic 2,000-row benchmark harness.
+* **Minimalist Systems Footprint:** ~500 lines of core runtime code (`src/code_airlock/engine.py`, `sanitizer.py`, `proxy.py`, `mcp_server.py`) plus a deterministic 2,000-row benchmark harness.
 
 ---
 
@@ -50,7 +50,7 @@ flowchart TB
 
 ---
 
-## 📊 Gold-Set Benchmark (`gold_set.jsonl`)
+## 📊 Gold-Set Benchmark (`benchmarks/gold_set.jsonl`)
 
 Evaluated on **285 developer prompts** (sampled from `CodeAlpaca_20K` and `OpenCodeInstruct` with injected `.env` blocks, ticket escalations, billing metadata, and C++ template syntax) totaling **744 ground-truth PII spans** across 11 categories:
 
@@ -77,7 +77,7 @@ Evaluated on **285 developer prompts** (sampled from `CodeAlpaca_20K` and `OpenC
 
 ## 🧪 Unified 2,000-Row Benchmark Matrix
 
-`build_benchmarks.py` deterministically generates four stratified splits into the git-ignored `benchmarks/` directory (`seed=42`). `benchmark.py` evaluates them and writes [`BENCHMARK_RESULTS.md`](BENCHMARK_RESULTS.md).
+`benchmarks/build_benchmarks.py` deterministically generates four stratified splits into the git-ignored `benchmarks/` directory (`seed=42`). `benchmarks/benchmark.py` evaluates them and writes [`benchmarks/BENCHMARK_RESULTS.md`](benchmarks/BENCHMARK_RESULTS.md).
 
 | Split | Rows | Positive | Clean / Hard-neg | Ground-truth spans |
 | :--- | ---: | ---: | ---: | ---: |
@@ -101,14 +101,14 @@ Reference result (strict exact-span matching, `code-airlock` v0.1.0):
 - Per-entity support: `API_KEY` 756, `AUTH_TOKEN` 467, `CREDIT_CARD` 440, `EMAIL` 754, `PHONE` 465, `IP_ADDRESS` 442, `GOVT_ID` 465, `IBAN_CRYPTO` 465, `PERSON` 729, `ORGANIZATION` 417, `LOCATION` 417. Every entity is at **100% P/R/F1**.
 - Invariants: MCP JSON parse **100/100**, JSON round-trip **100/100**, adversarial SSE **2,000/2,000**, hard negatives **250/250**, clean rows **350/350 with zero false positives**.
 
-These are **synthetic, template-composed fixtures**, so the perfect headline is a regression/invariant result, not a claim of real-world accuracy. The older real-world suites (`gold_set.jsonl`: 96.7/99.1/97.9; Gitleaks artifacts: 100/88.5/93.9) remain the honest field tests.
+These are **synthetic, template-composed fixtures**, so the perfect headline is a regression/invariant result, not a claim of real-world accuracy. The older real-world suites (`benchmarks/gold_set.jsonl`: 96.7/99.1/97.9; Gitleaks artifacts: 100/88.5/93.9) remain the honest field tests.
 
 ### 🤗 Published Dataset
 
 One command publishes all four splits and the auto-generated card:
 
 ```bash
-python export_hf.py --repo-id sarthexe/pii-airlock-bench
+python benchmarks/export_hf.py --repo-id sarthexe/pii-airlock-bench
 ```
 
 Dataset: [**sarthax/pii-airlock-bench**](https://huggingface.co/datasets/sarthax/pii-airlock-bench) (the token owner namespace is resolved automatically).
@@ -171,6 +171,22 @@ claude mcp add code-airlock -- uvx code-airlock
 
 *(You can also run directly from source via `uvx --from git+https://github.com/sarthexe/code-airlock code-airlock`)*.
 
+For a local editable checkout, use the package entrypoint instead of an
+absolute path:
+
+```json
+{
+  "mcpServers": {
+    "code-airlock": {
+      "command": "python",
+      "args": ["-m", "code_airlock.mcp_server"]
+    }
+  }
+}
+```
+
+`python -m code_airlock` starts the same MCP server.
+
 ---
 
 ### Option 2: Local Development / Manual Git Clone
@@ -181,7 +197,10 @@ cd code-airlock
 pip install -e ".[dev,benchmark]"
 
 # Test tools locally over stdio
-python mcp_server.py
+python -m code_airlock
+
+# Or run the explicit MCP entrypoint
+code-airlock-mcp
 ```
 
 ---
@@ -192,12 +211,15 @@ Run as a transparent privacy gateway intercepting HTTP requests:
 
 ```bash
 # Run with built-in zero-leak mock upstream (offline validation)
-uvicorn proxy:app --port 8000
+code-airlock-proxy
 
 # Or point to a live upstream provider (OpenAI, Ollama, OpenRouter, vLLM)
 export AIRLOCK_UPSTREAM_URL="https://api.openai.com"
-uvicorn proxy:app --port 8000
+code-airlock-proxy
 ```
+
+The proxy binds to `127.0.0.1:8000` by default. Override with
+`AIRLOCK_HOST` / `AIRLOCK_PORT`.
 
 ---
 
@@ -216,21 +238,22 @@ To ensure your coding agent actually leverages the airlock tools instead of raw 
 
 | File | Lines | Responsibility |
 | :--- | :---: | :--- |
-| `engine.py` | 199 | Stage 1 regex/checksum validators (incl. 20+ developer key formats) + Stage 2 GLiNER-small + `TECH_ALLOWLIST` + span merger |
-| `sanitizer.py` | 93 | Session-consistent `VaultSession` dehydrator + stateful `StreamRehydrator` SSE parser |
-| `proxy.py` | 143 | FastAPI `/v1/chat/completions` gateway with SSE streaming rehydration & telemetry headers |
-| `mcp_server.py` | 71 | FastMCP `stdio` server exposing 5 zero-leak text and file tools for agentic harnesses |
-| `benchmark.py` | 161 | Unified 4-suite evaluator: P/R/F1, per-entity support, latency, hard-neg/clean/JSON/SSE invariants |
-| `build_benchmarks.py` | 238 | Deterministic 2,000-row generator (`seed=42`) for the four `benchmarks/` splits |
-| `test_proxy.py` | 84 | End-to-end proxy tests (11-entity zero-leak check, 2-char SSE split rehydration, C++ syntax) |
-| `test_mcp.py` | 66 | MCP tool verification (`.env` $\rightarrow$ `config.json` zero-leak file migration & vault safety) |
-| `export_hf.py` | 87 | Publishes all 4 splits plus the auto-generated dataset card to Hugging Face |
-| `BENCHMARK_RESULTS.md` | — | Generated metrics-only scorecard (safe to commit) |
+| `src/code_airlock/engine.py` | 199 | Stage 1 regex/checksum validators (incl. 20+ developer key formats) + Stage 2 GLiNER-small + `TECH_ALLOWLIST` + span merger |
+| `src/code_airlock/sanitizer.py` | 93 | Session-consistent `VaultSession` dehydrator + stateful `StreamRehydrator` SSE parser |
+| `src/code_airlock/proxy.py` | 153 | FastAPI `/v1/chat/completions` gateway, SSE rehydration, telemetry headers, `main()` |
+| `src/code_airlock/mcp_server.py` | 71 | FastMCP `stdio` server exposing 5 zero-leak text and file tools |
+| `src/code_airlock/__init__.py` | 7 | Public API: `CascadeEngine`, `VaultSession`, `StreamRehydrator`, `__version__` |
+| `src/code_airlock/__main__.py` | 6 | `python -m code_airlock` → MCP server |
+| `tests/test_proxy.py` | 84 | End-to-end proxy tests (11-entity zero-leak check, 2-char SSE split, C++ syntax) |
+| `tests/test_mcp.py` | 66 | MCP tool verification (`.env` → `config.json` zero-leak migration) |
+| `benchmarks/benchmark.py` | 162 | Unified 4-suite evaluator → `benchmarks/BENCHMARK_RESULTS.md` |
+| `benchmarks/build_benchmarks.py` | 239 | Deterministic 2,000-row generator (`seed=42`) |
+| `benchmarks/export_hf.py` | 88 | Publishes all 4 splits plus the auto-generated dataset card |
+| `benchmarks/BENCHMARK_RESULTS.md` | — | Generated metrics-only scorecard |
+| `benchmarks/gold_set.jsonl` | — | 285-row real-world regression corpus |
 | `benchmarks/*.jsonl` | — | Generated 4-split fixtures (git-ignored) |
-| `gold_set.jsonl` | — | 285-row real-world regression corpus (legacy field test) |
-| `LICENSE` | — | MIT license |
-| `SECURITY.md` | — | Threat model and private vulnerability disclosure |
-| `requirements*.txt` | — | Runtime and development dependency pins |
+| `pyproject.toml` | — | Package metadata, src discovery, entrypoints, extras, pytest config |
+| `LICENSE` / `SECURITY.md` | — | MIT license and disclosure policy |
 | `.github/workflows/` | — | CI test workflow + PyPI Trusted Publishing |
 
 ---

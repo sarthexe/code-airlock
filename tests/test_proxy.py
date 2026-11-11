@@ -1,7 +1,7 @@
 """test_proxy.py - End-to-end tests for the pii-airlock streaming gateway."""
 import json
 from fastapi.testclient import TestClient
-import proxy
+from code_airlock import proxy
 
 client = TestClient(proxy.app)
 

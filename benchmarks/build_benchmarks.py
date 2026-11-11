@@ -1,10 +1,11 @@
 """build_benchmarks.py - Deterministic 4-suite, 2,000-row developer privacy benchmark (seed=42)."""
 from __future__ import annotations
 import json, os, random, string
-from engine import verhoeff_check
+from pathlib import Path
+from code_airlock.engine import verhoeff_check
 
 R = random.Random(42)
-OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "benchmarks")
+OUT = Path(__file__).resolve().parent
 LABELS = ["API_KEY", "AUTH_TOKEN", "CREDIT_CARD", "EMAIL", "PHONE", "IP_ADDRESS",
           "GOVT_ID", "IBAN_CRYPTO", "PERSON", "ORGANIZATION", "LOCATION"]
 AL = string.ascii_letters + string.digits

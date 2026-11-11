@@ -4,10 +4,10 @@ import json, os, time
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
-from engine import CascadeEngine
-from sanitizer import StreamRehydrator, VaultSession
+from .engine import CascadeEngine
+from .sanitizer import StreamRehydrator, VaultSession
 
-app = FastAPI(title="pii-airlock", version="0.1.0")
+app = FastAPI(title="code-airlock", version="1.0.0")
 engine = CascadeEngine()
 UPSTREAM = os.getenv("AIRLOCK_UPSTREAM_URL", "").rstrip("/")
 LAST_OUTBOUND: dict = {}
@@ -141,3 +141,13 @@ async def chat(request: Request):
         return StreamingResponse(_rehydrate_sse(_upstream_frames(url, payload, upstream_headers), session.vault),
                                  media_type="text/event-stream", headers=headers)
     return JSONResponse(await _live_json(url, payload, upstream_headers, session), headers=headers)
+
+
+def main() -> None:
+    import uvicorn
+    uvicorn.run(app, host=os.getenv("AIRLOCK_HOST", "127.0.0.1"),
+                port=int(os.getenv("AIRLOCK_PORT", "8000")))
+
+
+if __name__ == "__main__":
+    main()

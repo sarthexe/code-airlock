@@ -1,6 +1,0 @@
--r requirements.txt
-pytest>=8.0
-build>=1.2
-twine>=5.0
-datasets>=2.18
-huggingface_hub>=0.23

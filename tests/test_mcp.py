@@ -1,7 +1,7 @@
 """test_mcp.py - End-to-end harness workflow verification for the MCP server."""
 import json
 import pytest
-import mcp_server as airlock
+from code_airlock import mcp_server as airlock
 
 OPENAI = "sk-abcdefghijklmnopqrstuvwxyz123456"
 AWS = "AKIAIOSFODNN7EXAMPLE"
