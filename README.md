@@ -5,9 +5,9 @@
 `code-airlock` is a zero-trust privacy layer for LLMs and agentic coding harnesses. It intercepts sensitive credentials, financial identifiers, and personal data before they leave your machine, replaces them with deterministic session tokens (`<API_KEY_1>`, `<PERSON_1>`), and seamlessly rehydrates them back into real-time Server-Sent Events (SSE) token streams or local file writes.
 
 * **Dual Deployment Modes:** Run as a drop-in **OpenAI-compatible `/v1/chat/completions` reverse proxy** or as a **Model Context Protocol (MCP) server** (`stdio`) for OpenCode, Cursor, and Claude Code.
-* **2-Stage Hybrid Cascade:** Combines sub-millisecond deterministic regex + mathematical checksums (**Luhn, Verhoeff $D_5$, ISO 7064 MOD-97**) with contextual neural NER (`urchade/gliner_small-v2.1`) and a 93-term developer allowlist.
+* **2-Stage Hybrid Cascade:** Combines sub-millisecond deterministic regex + mathematical checksums (**Luhn, Verhoeff $D_5$, ISO 7064 MOD-97**) with contextual neural NER (`urchade/gliner_small-v2.1`) and a curated developer allowlist.
 * **Zero-Delay Streaming Rehydration:** Stateful sliding-window SSE parser reassembles split tokens across arbitrary 2-byte network chunks without delaying code comparison or bitwise operators (`<`, `<<`, `template <typename T>`).
-* **Minimalist Systems Footprint:** ~790 lines of core runtime code (`engine.py`, `sanitizer.py`, `proxy.py`, `mcp_server.py`) plus a deterministic 2,000-row benchmark harness.
+* **Minimalist Systems Footprint:** ~500 lines of core runtime code (`engine.py`, `sanitizer.py`, `proxy.py`, `mcp_server.py`) plus a deterministic 2,000-row benchmark harness.
 
 ---
 
@@ -178,8 +178,7 @@ claude mcp add code-airlock -- uvx code-airlock
 ```bash
 git clone https://github.com/sarthexe/code-airlock.git
 cd code-airlock
-pip install -r requirements.txt
-pip install -e .
+pip install -e ".[dev,benchmark]"
 
 # Test tools locally over stdio
 python mcp_server.py
@@ -222,11 +221,26 @@ To ensure your coding agent actually leverages the airlock tools instead of raw 
 | `proxy.py` | 143 | FastAPI `/v1/chat/completions` gateway with SSE streaming rehydration & telemetry headers |
 | `mcp_server.py` | 71 | FastMCP `stdio` server exposing 5 zero-leak text and file tools for agentic harnesses |
 | `benchmark.py` | 161 | Unified 4-suite evaluator: P/R/F1, per-entity support, latency, hard-neg/clean/JSON/SSE invariants |
-| `build_benchmarks.py` | 239 | Deterministic 2,000-row generator (`seed=42`) for the four `benchmarks/` splits |
+| `build_benchmarks.py` | 238 | Deterministic 2,000-row generator (`seed=42`) for the four `benchmarks/` splits |
 | `test_proxy.py` | 84 | End-to-end proxy tests (11-entity zero-leak check, 2-char SSE split rehydration, C++ syntax) |
 | `test_mcp.py` | 66 | MCP tool verification (`.env` $\rightarrow$ `config.json` zero-leak file migration & vault safety) |
 | `export_hf.py` | 87 | Publishes all 4 splits plus the auto-generated dataset card to Hugging Face |
 | `BENCHMARK_RESULTS.md` | — | Generated metrics-only scorecard (safe to commit) |
 | `benchmarks/*.jsonl` | — | Generated 4-split fixtures (git-ignored) |
-| `dev_benchmark.jsonl` | — | Legacy 56-row suite (git-ignored, superseded) |
-| `git_leak_benchmark.jsonl` | — | Legacy 36-row Git-leak suite (git-ignored, superseded) |
+| `gold_set.jsonl` | — | 285-row real-world regression corpus (legacy field test) |
+| `LICENSE` | — | MIT license |
+| `SECURITY.md` | — | Threat model and private vulnerability disclosure |
+| `requirements*.txt` | — | Runtime and development dependency pins |
+| `.github/workflows/` | — | CI test workflow + PyPI Trusted Publishing |
+
+---
+
+## 🔐 Security
+
+Detection is best-effort and local-only. It reduces exposure but is not a
+guarantee that every secret is removed. See [SECURITY.md](SECURITY.md) for the
+threat model, known gaps, and private disclosure instructions.
+
+## 📜 License
+
+MIT © 2026 Sarthak Maurya. See [LICENSE](LICENSE).

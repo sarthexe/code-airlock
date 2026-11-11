@@ -1,12 +1,28 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=77.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "code-airlock"
 version = "0.1.0"
-description = "Low-latency OpenAI-compatible PII Redaction & Rehydration Gateway and FastMCP Server"
-authors = [{ name = "code-airlock team" }]
+description = "Low-latency OpenAI-compatible PII redaction gateway and FastMCP server for coding agents"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Sarthak Maurya" }]
+keywords = ["pii", "privacy", "secrets", "dlp", "mcp", "llm", "security"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 dependencies = [
     "gliner>=0.2.13",
     "torch>=2.0.0",
@@ -15,13 +31,23 @@ dependencies = [
     "fastapi>=0.110",
     "uvicorn>=0.27",
     "httpx>=0.27",
-    "pytest>=8.0",
 ]
-readme = "README.md"
-requires-python = ">=3.10"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "build>=1.2", "twine>=5.0"]
+benchmark = ["datasets>=2.18", "huggingface_hub>=0.23"]
+
+[project.urls]
+Homepage = "https://github.com/sarthexe/code-airlock"
+Repository = "https://github.com/sarthexe/code-airlock"
+Issues = "https://github.com/sarthexe/code-airlock/issues"
+Dataset = "https://huggingface.co/datasets/sarthax/pii-airlock-bench"
 
 [project.scripts]
 code-airlock = "mcp_server:main"
 
 [tool.setuptools]
 py-modules = ["mcp_server", "engine", "sanitizer", "proxy", "benchmark"]
+
+[tool.pytest.ini_options]
+testpaths = ["test_proxy.py", "test_mcp.py"]

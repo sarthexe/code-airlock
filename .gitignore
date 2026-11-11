@@ -1,15 +1,31 @@
+# Python
 __pycache__/
 *.py[cod]
-.pytest_cache/
-.venv/
-.env
-secrets.out.json
-*.log
-dist/
-build/
 *.egg-info/
-.git_leaks/
-git_leak_benchmark.jsonl
-build_git_leak_benchmark.py
+build/
+dist/
+.venv/
+venv/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Generated benchmark fixtures (format-valid dummy credentials)
 benchmarks/*.jsonl
 *benchmark*.jsonl
+.git_leaks/
+
+# Secrets and local state
+.env
+.env.*
+!.env.sample
+secrets.out.json
+*.log
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

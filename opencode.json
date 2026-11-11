@@ -3,7 +3,7 @@
   "mcp": {
     "code-airlock": {
       "type": "local",
-      "command": ["python", "C:/Users/sarth/Desktop/pii-airlock/mcp_server.py"],
+      "command": ["uvx", "code-airlock"],
       "enabled": true
     }
   }
