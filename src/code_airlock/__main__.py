@@ -80,8 +80,37 @@ def doctor(show_config: bool = True) -> int:
     return 0
 
 
+def _append_rule(target: Path, label: str) -> None:
+    """Append the airlock rule block once, creating parent directories as needed."""
+    existing = target.read_text(encoding="utf-8") if target.exists() else ""
+    if MARKER in existing:
+        print(f"[ok] {label} already contains code-airlock rules")
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    separator = "\n\n" if existing.strip() else ""
+    target.write_text(existing.rstrip() + separator + RULE, encoding="utf-8")
+    print(f"[ok] updated {label}")
+
+
+def _install_hook(root: Path) -> bool:
+    """Install the pre-commit hook when the directory is a Git repository."""
+    hooks = root / ".git" / "hooks"
+    if not hooks.is_dir():
+        return False
+    hook = hooks / "pre-commit"
+    existing = hook.read_text(encoding="utf-8") if hook.exists() else ""
+    if "code-airlock scan --staged" in existing:
+        print("[ok] .git/hooks/pre-commit already installed")
+    else:
+        separator = "\n\n" if existing.strip() else ""
+        hook.write_text(existing.rstrip() + separator + HOOK, encoding="utf-8")
+        os.chmod(hook, 0o755)
+        print("[ok] installed .git/hooks/pre-commit")
+    return True
+
+
 def init(pre_commit: bool = False, config: bool = False, targets: list[str] | None = None) -> int:
-    targets = targets or _detect_harness()
+    targets = _detect_harness() if targets is None else targets
     if config:
         config_path = Path.cwd() / ".airlock.toml"
         if config_path.exists():
@@ -91,64 +120,51 @@ def init(pre_commit: bool = False, config: bool = False, targets: list[str] | No
             print("[ok] created .airlock.toml")
     for harness in targets:
         name = RULE_FILES[harness]
-        target = Path.cwd() / name
-        existing = target.read_text(encoding="utf-8") if target.exists() else ""
-        if MARKER in existing:
-            print(f"[ok] {name} already contains code-airlock rules")
-            continue
-        separator = "\n\n" if existing.strip() else ""
-        target.write_text(existing.rstrip() + separator + RULE, encoding="utf-8")
-        print(f"[ok] updated {name}")
-    if pre_commit:
-        hooks = Path.cwd() / ".git" / "hooks"
-        if not hooks.is_dir():
-            print("[skip] no .git/hooks directory")
-        else:
-            hook = hooks / "pre-commit"
-            existing = hook.read_text(encoding="utf-8") if hook.exists() else ""
-            if "code-airlock scan --staged" in existing:
-                print("[ok] .git/hooks/pre-commit already installed")
-            else:
-                separator = "\n\n" if existing.strip() else ""
-                hook.write_text(existing.rstrip() + separator + HOOK, encoding="utf-8")
-                os.chmod(hook, 0o755)
-                print("[ok] installed .git/hooks/pre-commit")
+        _append_rule(Path.cwd() / name, name)
+    if pre_commit and not _install_hook(Path.cwd()):
+        print("[skip] no .git/hooks directory")
     return 0
 
 
 def install(target: str | None = None, home: Path | None = None, workspace: Path | None = None,
             check: bool = True) -> int:
-    """Register the MCP server for the detected harness, initialize guardrails, and warm up."""
+    """Register code-airlock globally for every harness, then warm up the engine."""
     from .config import merge_mcp_config
     home = home or Path.home()
     workspace = workspace or Path.cwd()
-    harnesses = _detect_harness(target)
-    command = [sys.executable, "-m", "code_airlock.mcp_server"]
-    spec = {"command": sys.executable, "args": ["-m", "code_airlock.mcp_server"]}
-    targets = []
+    harnesses = list(HARNESSES) if target in (None, "all") else [target]
+    command = ["python", "-m", "code_airlock.mcp_server"]
+    spec = {"command": "python", "args": ["-m", "code_airlock.mcp_server"]}
+    configs, rules = [], []
     if "opencode" in harnesses:
-        targets.append((home / ".config" / "opencode" / "opencode.json", "mcp",
+        configs.append((home / ".config" / "opencode" / "opencode.json", "mcp",
                         {"type": "local", "command": command}))
-        project = workspace / "opencode.json"
-        if project.exists():
-            targets.append((project, "mcp", {"type": "local", "command": command}))
+        rules.append(home / ".config" / "opencode" / "AGENTS.md")
     if "claude" in harnesses:
-        targets.append((workspace / ".mcp.json", "mcpServers", spec))
+        configs.append((home / ".claude.json", "mcpServers", spec))
+        rules.append(home / ".claude" / "CLAUDE.md")
     if "cursor" in harnesses:
-        targets.append((workspace / ".cursor" / "mcp.json", "mcpServers", spec))
+        configs.append((home / ".cursor" / "mcp.json", "mcpServers", spec))
     failed = 0
-    print(f"[ok] Detected harness: {', '.join(harnesses)}")
-    for path, top_key, server in targets:
+    print(f"[ok] Installing globally for: {', '.join(harnesses)}")
+    for path, top_key, server in configs:
         try:
             updated, existed = merge_mcp_config(path, top_key, "code-airlock", dict(server))
             print(f"[ok] {'updated' if existed else 'created'}: {updated}")
         except (OSError, ValueError) as exc:
             failed = 1
             print(f"[fail] {exc}")
+    for path in rules:
+        try:
+            _append_rule(path, str(path))
+        except OSError as exc:
+            failed = 1
+            print(f"[fail] {exc}")
     if check:
-        failed |= init(pre_commit=True, config=True, targets=harnesses)
+        if (workspace / ".git").exists():
+            _install_hook(workspace)
         failed |= doctor(show_config=False)
-    print("\nRestart your agent to load the code-airlock tools.")
+    print("\nRestart your agents to load the code-airlock tools.")
     return 1 if failed else 0
 
 
@@ -162,8 +178,9 @@ def main() -> int:
     init_cmd.add_argument("--pre-commit", action="store_true", help="install .git/hooks/pre-commit")
     init_cmd.add_argument("--config", action="store_true", help="create a starter .airlock.toml")
     init_cmd.add_argument("--target", choices=(*HARNESSES, "all"), help="harness to initialize (default: auto-detect)")
-    install_cmd = sub.add_parser("install", help="register agent configs, initialize guardrails, and warm up the model")
-    install_cmd.add_argument("--target", choices=(*HARNESSES, "all"), help="harness to configure (default: auto-detect)")
+    install_cmd = sub.add_parser("install", help="register code-airlock globally for OpenCode, Claude Code, and Cursor")
+    install_cmd.add_argument("--target", choices=(*HARNESSES, "all"),
+                             help="harness to configure globally (default: all)")
     scan_cmd = sub.add_parser("scan", help="scan files or staged changes for secrets")
     scan_cmd.add_argument("--staged", action="store_true", help="scan files staged in git")
     scan_cmd.add_argument("--deep", action="store_true", help="enable Stage 2 GLiNER detection")

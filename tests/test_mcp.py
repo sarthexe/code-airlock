@@ -186,17 +186,13 @@ def _isolated_harness(tmp_path, monkeypatch):
     work = tmp_path / "work"
     home.mkdir()
     work.mkdir()
-    monkeypatch.setenv("HOME", str(home))
-    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
     monkeypatch.chdir(work)
-    for var in ("OPENCODE", "OPENCODE_VERSION", "OPENCODE_CONFIG_DIR",
-                "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CURSOR_TRACE_ID", "VSCODE_PID"):
-        monkeypatch.delenv(var, raising=False)
     monkeypatch.setattr(cli, "doctor", lambda *a, **k: 0)
     return home, work
 
 
-def test_install_opencode_only(tmp_path, monkeypatch):
+def test_install_configures_all_harnesses_globally(tmp_path, monkeypatch):
     home, work = _isolated_harness(tmp_path, monkeypatch)
     opencode = home / ".config" / "opencode" / "opencode.json"
     opencode.parent.mkdir(parents=True)
@@ -204,41 +200,61 @@ def test_install_opencode_only(tmp_path, monkeypatch):
         "theme": "dark",
         "mcp": {"rea": {"type": "local", "command": ["rea"]}},
     }), encoding="utf-8")
-    monkeypatch.setenv("OPENCODE", "1")
+    claude = home / ".claude.json"
+    claude.write_text(json.dumps({
+        "keep": True,
+        "mcpServers": {"rea": {"command": ["rea"]}},
+    }), encoding="utf-8")
+    cursor = home / ".cursor" / "mcp.json"
+    cursor.parent.mkdir(parents=True)
+    cursor.write_text(json.dumps({
+        "mcpServers": {"rea": {"command": ["rea"]}},
+    }), encoding="utf-8")
     monkeypatch.setattr(sys, "argv", ["code-airlock", "install"])
     assert cli.main() == 0
 
     data = json.loads(opencode.read_text(encoding="utf-8"))
     assert data["theme"] == "dark"
     assert data["mcp"]["rea"] == {"type": "local", "command": ["rea"]}
-    assert data["mcp"]["code-airlock"]["command"][1:] == ["-m", "code_airlock.mcp_server"]
-    assert (work / "AGENTS.md").exists()
-    for absent in ("CLAUDE.md", ".cursorrules", ".mcp.json", ".cursor"):
+    assert data["mcp"]["code-airlock"]["command"] == ["python", "-m", "code_airlock.mcp_server"]
+    data = json.loads(claude.read_text(encoding="utf-8"))
+    assert data["keep"] is True
+    assert data["mcpServers"]["rea"] == {"command": ["rea"]}
+    assert data["mcpServers"]["code-airlock"]["args"] == ["-m", "code_airlock.mcp_server"]
+    data = json.loads(cursor.read_text(encoding="utf-8"))
+    assert data["mcpServers"]["rea"] == {"command": ["rea"]}
+    assert data["mcpServers"]["code-airlock"]["command"] == "python"
+    for rule in (home / ".config" / "opencode" / "AGENTS.md", home / ".claude" / "CLAUDE.md"):
+        assert rule.exists()
+        assert cli.MARKER in rule.read_text(encoding="utf-8")
+    for absent in ("AGENTS.md", "CLAUDE.md", ".cursorrules", ".mcp.json", ".cursor", ".airlock.toml"):
         assert not (work / absent).exists()
 
 
-def test_install_claude_only(tmp_path, monkeypatch):
+def test_install_target_limits_global_configuration(tmp_path, monkeypatch):
     home, work = _isolated_harness(tmp_path, monkeypatch)
-    monkeypatch.setenv("CLAUDECODE", "1")
-    monkeypatch.setattr(sys, "argv", ["code-airlock", "install"])
+    monkeypatch.setattr(sys, "argv", ["code-airlock", "install", "--target", "claude"])
     assert cli.main() == 0
 
-    assert (work / "CLAUDE.md").exists()
-    data = json.loads((work / ".mcp.json").read_text(encoding="utf-8"))
-    assert data["mcpServers"]["code-airlock"]["args"] == ["-m", "code_airlock.mcp_server"]
-    assert not (work / "AGENTS.md").exists()
-    assert not (work / ".cursorrules").exists()
+    assert (home / ".claude.json").exists()
+    assert (home / ".claude" / "CLAUDE.md").exists()
     assert not (home / ".config" / "opencode" / "opencode.json").exists()
+    assert not (home / ".cursor" / "mcp.json").exists()
+    assert not (work / "CLAUDE.md").exists()
 
 
-def test_install_cursor_only(tmp_path, monkeypatch):
-    home, work = _isolated_harness(tmp_path, monkeypatch)
-    monkeypatch.setenv("CURSOR_TRACE_ID", "test-trace")
-    monkeypatch.setattr(sys, "argv", ["code-airlock", "install"])
+def test_init_writes_only_detected_rule_file(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENCODE", "1")
+    monkeypatch.setattr(sys, "argv", ["code-airlock", "init"])
     assert cli.main() == 0
 
-    assert (work / ".cursorrules").exists()
-    data = json.loads((work / ".cursor" / "mcp.json").read_text(encoding="utf-8"))
-    assert data["mcpServers"]["code-airlock"]["args"] == ["-m", "code_airlock.mcp_server"]
-    assert not (work / "AGENTS.md").exists()
-    assert not (work / "CLAUDE.md").exists()
+    assert (tmp_path / "AGENTS.md").exists()
+    assert not (tmp_path / "CLAUDE.md").exists()
+    assert not (tmp_path / ".cursorrules").exists()
+
+
+def test_mcp_handshake_includes_airlock_instructions():
+    instructions = airlock.mcp.instructions
+    for tool in ("airlock_read_file", "airlock_write_file", "airlock_exec", "airlock_scrub_text"):
+        assert tool in instructions

@@ -29,9 +29,9 @@ Or run:
 pip install -U code-airlock && python -m code_airlock install
 ```
 
-`code-airlock` automatically detects your active harness (OpenCode, Claude Code, or Cursor), registers its MCP server in that harness's config without overwriting existing servers, and generates only the matching instruction file (`AGENTS.md`, `CLAUDE.md`, or `.cursorrules`). It also warms up the ONNX model, creates `.airlock.toml`, and installs the Git pre-commit hook when run inside a repository.
+`code-airlock` configures **OpenCode, Claude Code, and Cursor globally in one shot** — no repo clutter. It merges its MCP server into each harness's home config without overwriting existing servers, appends the airlock rules to the global OpenCode and Claude instruction files, warms up the ONNX model, and installs the Git pre-commit hook when run inside a repository. The same rules also travel in the MCP handshake, so every new project gets them automatically.
 
-Override detection with `--target opencode|claude|cursor|all`. Restart the agent afterward to load the seven `airlock_*` tools.
+Limit it with `--target opencode|claude|cursor`. Use `python -m code_airlock init` inside a project for a local `AGENTS.md`, `CLAUDE.md`, or `.cursorrules`. Restart your agents afterward to load the seven `airlock_*` tools.
 
 You can run `code-airlock` directly via **`uvx`** (zero install, no virtual environment needed) or install it globally via **`pip`**.
 
@@ -71,7 +71,7 @@ claude mcp add code-airlock -- uvx code-airlock
 # 1. Pre-cache ONNX weights & run a 1-second round-trip self-test
 uvx --from code-airlock python -m code_airlock doctor
 
-# 2. Add agent rules (.cursorrules / CLAUDE.md), .airlock.toml, and Git pre-commit hook
+# 2. Add the local rule file for your harness plus .airlock.toml and Git pre-commit hook
 uvx --from code-airlock python -m code_airlock init --pre-commit --config
 ```
 
@@ -170,9 +170,9 @@ Once added to your harness and initialized via `init --pre-commit`, your coding 
 
 ```bash
 python -m code_airlock                 # Start FastMCP stdio server (default)
-python -m code_airlock install         # Detect harness, register MCP config, init guardrails
+python -m code_airlock install         # Configure all harnesses globally, warm up model
 python -m code_airlock doctor          # Warm up ONNX model, run self-test & print IDE configs
-python -m code_airlock init            # Add agent rules to .cursorrules and CLAUDE.md
+python -m code_airlock init            # Write the local rule file for the detected harness
 python -m code_airlock init --pre-commit --config  # Also install Git hook + starter .airlock.toml
 python -m code_airlock scan src/       # Fast Stage-1 secret scan across paths (0.20ms/file)
 python -m code_airlock scan --staged   # Scan staged Git changes (exits 1 on findings, masks preview)

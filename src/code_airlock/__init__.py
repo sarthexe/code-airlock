@@ -3,5 +3,5 @@
 from .engine import CascadeEngine
 from .sanitizer import StreamRehydrator, VaultSession
 
-__version__ = "1.4.3"
+__version__ = "1.4.4"
 __all__ = ["CascadeEngine", "StreamRehydrator", "VaultSession", "__version__"]

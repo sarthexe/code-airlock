@@ -7,7 +7,15 @@ from .engine import CascadeEngine
 from .executor import run_command
 from .sanitizer import VaultSession, TOKEN_VARIANT_RE as TOKEN_RE
 
-mcp = FastMCP("code-airlock")
+mcp = FastMCP(
+    "code-airlock",
+    instructions=(
+        "ZERO-TRUST SECRET & PII AIRLOCK: Never use native file-read, file-write, or bash/cat tools "
+        "on .env files, credentials, or files containing API keys/PII. Always use `airlock_read_file` to read, "
+        "`airlock_write_file` to write (preserving <ENTITY_N> tokens), `airlock_exec` to run scripts/tests "
+        "with .env secrets injected and stdout scrubbed, and `airlock_scrub_text` for raw snippets."
+    ),
+)
 ENGINE = CascadeEngine()
 VAULT = VaultSession()
 BLOCKED_DIRS = frozenset({".ssh", ".aws", ".gnupg", ".kube"})
