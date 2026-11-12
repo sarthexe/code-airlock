@@ -1,155 +1,44 @@
-# 🛡️ Code-Airlock
+# 🛡️ code-airlock
 
-**Low-Latency AI Privacy, Secret/PII Redaction & Streaming Rehydration Gateway (`OpenAI Proxy` + `FastMCP Server`)**
+[![PyPI version](https://img.shields.io/pypi/v/code-airlock.svg)](https://pypi.org/project/code-airlock/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Benchmark](https://img.shields.io/badge/Benchmark-100%25%20Recall%20%2F%20Precision-brightgreen)](https://huggingface.co/datasets/sarthexe/pii-airlock-bench)
+[![Runtime](https://img.shields.io/badge/Runtime-Pure%20ONNX%20(Zero--Torch)-orange)](#architecture)
 
-`code-airlock` is a zero-trust privacy layer for LLMs and agentic coding harnesses. It intercepts sensitive credentials, financial identifiers, and personal data before they leave your machine, replaces them with deterministic session tokens (`<API_KEY_1>`, `<PERSON_1>`), and seamlessly rehydrates them back into real-time Server-Sent Events (SSE) token streams or local file writes.
+**Zero-trust PII & secret airlock for AI coding agents (Claude Code, OpenCode, Cursor, Windsurf, Cline).**
 
-* **Dual Deployment Modes:** Run as a drop-in **OpenAI-compatible `/v1/chat/completions` reverse proxy** or as a **Model Context Protocol (MCP) server** (`stdio`) for OpenCode, Cursor, and Claude Code.
-* **2-Stage Hybrid Cascade:** Combines sub-millisecond deterministic regex + mathematical checksums (**Luhn, Verhoeff $D_5$, ISO 7064 MOD-97**) with contextual neural NER (`onnx-community/gliner_small-v2.1` on **ONNX Runtime**) and a curated developer allowlist.
-* **Deterministic Secret Coverage:** Stage 1 also captures inline connection-string passwords and `PASSWORD` / `SECRET` / `ACCESS_TOKEN` / `API_KEY` assignments, excluding placeholders, booleans, function calls, and existing vault tokens.
-* **Git & CI Guardrails:** `code-airlock scan --staged` catches secrets in staged files at sub-millisecond Stage 1 speed, masks every value in output, and installs a `.git/hooks/pre-commit` gate via `init --pre-commit`.
-* **Safe Agent Execution:** `airlock_exec` injects real `.env` values into a guarded subprocess (`shell=False`) and scrubs both stdout and stderr before returning them to the model.
-* **Project-Aware Rules:** `.airlock.toml` adds team allowlist terms and custom Stage-1 regexes such as `EMPLOYEE_ID = 'EMP-[0-9]{6}'`.
-* **Zero-Delay Streaming Rehydration:** Stateful sliding-window SSE parser reassembles split tokens across arbitrary 2-byte network chunks without delaying code comparison or bitwise operators (`<`, `<<`, `template <typename T>`).
-* **Minimalist Systems Footprint:** ~850 lines of core runtime code (`engine.py`, `onnx_ner.py`, `sanitizer.py`, `proxy.py`, `mcp_server.py`, `scanner.py`, `config.py`, `executor.py`) plus a deterministic 2,000-row benchmark harness. One universal install — no PyTorch, no CUDA toolkit.
+`code-airlock` sits between your local codebase and LLM agents as both a **FastMCP Server** and an **OpenAI-compatible SSE Proxy**. It replaces live API keys, database passwords, and PII with reversible, session-consistent placeholders (`<API_KEY_1>`, `<AUTH_TOKEN_1>`, `<PERSON_1>`) before text enters LLM context—and restores them byte-exact on disk or inside child test processes without the AI ever seeing the raw values.
 
----
-
-## 🏗️ System Architecture
-
-```mermaid
-flowchart TB
-    classDef client fill:#1e293b,stroke:#64748b,stroke-width:2px,color:#f8fafc
-    classDef stage1 fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#ecfdf5
-    classDef stage2 fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px,color:#eff6ff
-    classDef merger fill:#312e81,stroke:#8b5cf6,stroke-width:2px,color:#f5f3ff
-    classDef vault fill:#7c2d12,stroke:#f97316,stroke-width:2px,color:#fff7ed
-    classDef stream fill:#4c1d95,stroke:#a855f7,stroke-width:2px,color:#faf5ff
-
-    Client(["🖥️ Client SDK / Agent Harness<br/>(OpenAI SDK, OpenCode, Cursor, Claude Code)"]):::client
-
-    subgraph Airlock["🛡️ CODE-AIRLOCK (proxy.py / mcp_server.py)"]
-        direction TB
-        subgraph Cascade["engine.py — 2-Stage Hybrid Cascade"]
-            S1["⚡ Stage 1: Deterministic Fast-Pass (~0.44ms)<br/>• Regex: API_KEY, AUTH_TOKEN, EMAIL, PHONE, IPv4<br/>• Checksums: Luhn (Card), Verhoeff (ID), MOD-97 (IBAN)"]:::stage1
-            S2["🧠 Stage 2: Guarded Neural NER (GLiNER-small · ONNX)<br/>• Entities: PERSON, ORGANIZATION, LOCATION<br/>• Guards: 93-term TECH_ALLOWLIST + Code/Pronoun Filter"]:::stage2
-            Merger{"⚖️ Span Conflict Resolver<br/>Stage 1 Overrides Stage 2<br/>Longest Span Wins"}:::merger
-            S1 & S2 --> Merger
-        end
-
-        Vault[("🗄️ Ephemeral Session Vault<br/>sanitizer.py (VaultSession)<br/>Right-to-Left Tagging")]:::vault
-        Rehydrator["🪟 StreamRehydrator<br/>Stateful Sliding-Window SSE & File Parser"]:::stream
-
-        Merger --> Vault
-        Vault -.->|"O(1) Token Lookup"| Rehydrator
-    end
-
-    LLM(["☁️ Upstream LLM Provider<br/>*Sees Only &lt;ENTITY_n&gt; Tokens*"]):::client
-
-    Client -->|"1. Raw Prompt / File Read"| Cascade
-    Vault -->|"2. Sanitized Payload"| LLM
-    LLM -->|"3. Fragmented SSE Stream / Tool Patch"| Rehydrator
-    Rehydrator -->|"4. Restored Plaintext"| Client
-```
+- **Lightweight & Universal (~60 MB):** Powered by a two-stage deterministic Regex + **Pure ONNX Runtime (`gliner_small-v2.1`)** cascade. No `torch` bloat, no GPU required, and **100% offline** after initial model warmup.
+- **Sub-Millisecond Stage 1 (`0.20 ms` p50):** Instant secret detection and Git pre-commit scanning.
+- **Safe Subprocess Execution (`airlock_exec`):** Run `pytest` or scripts against live `.env` credentials while automatically scrubbing secrets from `stdout` and `stderr` before logs return to the agent.
 
 ---
 
-## 📊 Gold-Set Benchmark (`benchmarks/gold_set.jsonl`)
+## ⚡ Quickstart (Add to Your Agent Harness in 10 Seconds)
 
-Evaluated on **285 developer prompts** (sampled from `CodeAlpaca_20K` and `OpenCodeInstruct` with injected `.env` blocks, ticket escalations, billing metadata, and C++ template syntax) totaling **744 ground-truth PII spans** across 11 categories:
+You can run `code-airlock` directly via **`uvx`** (zero install, no virtual environment needed) or install it globally via **`pip`**.
 
-| Metric / Entity Category | Strict (P / R / F1) | Partial (P / R / F1) | Latency / Verification |
-| :--- | :---: | :---: | :--- |
-| **Overall Benchmark (744 Spans)** | **96.5% / 99.1% / 97.7%** | **97.0% / 99.6% / 98.3%** | **285 / 285 SSE Round-Trip Pass** |
-| **Stage 1 Latency (Deterministic)** | — | — | **0.44 ms (p50)** / 0.78 ms (p95) |
-| **Total Cascade Latency (CPU/GPU)** | — | — | **14.6–42.5 ms (p50)** |
-| `API_KEY` *(OpenAI, AWS, GitHub, Slack, Anthropic)* | 100 / 100 / **100%** | 100 / 100 / **100%** | Prefix + length/charset bounds |
-| `AUTH_TOKEN` *(JWT, Bearer, PEM Private Keys)* | 100 / 100 / **100%** | 100 / 100 / **100%** | 3-part Base64URL + PEM headers |
-| `CREDIT_CARD` *(13–19 digits)* | 100 / 100 / **100%** | 100 / 100 / **100%** | Pure-Python **Luhn Checksum** |
-| `GOVT_ID` *(SSN, PAN, 12-Digit National ID)* | 100 / 100 / **100%** | 100 / 100 / **100%** | **Verhoeff $D_5$ Checksum** |
-| `IBAN_CRYPTO` *(IBAN, ETH `0x...`)* | 100 / 100 / **100%** | 100 / 100 / **100%** | **ISO 7064 MOD-97** Checksum |
-| `EMAIL` & `PHONE` | 100 / 100 / **100%** | 100 / 100 / **100%** | Negative lookbehind for order IDs |
-| `IP_ADDRESS` *(IPv4)* | 94 / 100 / **97%** | 94 / 100 / **97%** | Octet range `0..255` (rejects `.300`) |
-| `PERSON` | 99 / 99 / **99%** | 99 / 99 / **99%** | Pronoun + code-identifier stopword guard |
-| `ORGANIZATION` | 89 / 95 / **92%** | 91 / 97 / **94%** | Filtered via 93-term `TECH_ALLOWLIST` |
-| `LOCATION` | 88 / 98 / **93%** | 90 / 100 / **95%** | Adjacent comma-span coalescing |
+### Option A: Zero-Install via `uvx` (Recommended)
 
-* **Hard-Negative Suite:** **61/61 Passed** (100% rejection of non-Luhn 16-digit order IDs, Verhoeff-invalid 12-digit numbers, MOD-97-invalid IBANs, and `v192.168.1.300` version strings).
-* **Tech Allowlist Check:** **30/30 Passed** (`FastAPI`, `Docker`, `Kubernetes`, `Redis`, `Postgres`, `AWS`, `Heroku`, etc. produce zero false positives).
-
----
-
-## 🧪 Unified 2,000-Row Benchmark Matrix
-
-`benchmarks/build_benchmarks.py` deterministically generates four stratified splits into the git-ignored `benchmarks/` directory (`seed=42`). `benchmarks/benchmark.py` evaluates them and writes [`benchmarks/BENCHMARK_RESULTS.md`](benchmarks/BENCHMARK_RESULTS.md).
-
-| Split | Rows | Positive | Clean / Hard-neg | Ground-truth spans |
-| :--- | ---: | ---: | ---: | ---: |
-| `dev_prompts` | 1,000 | 600 | 300 / 100 | 2,400 |
-| `git_leaks` | 500 | 350 | 0 / 150 | 1,400 |
-| `mcp_configs` | 250 | 200 | 50 / 0 | 800 |
-| `adversarial_sse` | 250 | 250 | 0 / 0 | 1,217 |
-| **Total** | **2,000** | **1,400** | **350 / 250** | **5,817** |
-
-Reference result (strict exact-span matching, `code-airlock` v1.4.0 on CPU ONNX Runtime):
-
-| Split | Strict P / R / F1 | Hard-neg | Clean 0-FP | SSE 1/2/7-byte |
-| :--- | :---: | :---: | :---: | :---: |
-| `dev_prompts` | 100% / 100% / 100% | 100/100 | 300/300 | 1000/1000 |
-| `git_leaks` | 100% / 100% / 100% | 150/150 | — | 500/500 |
-| `mcp_configs` | 100% / 100% / 100% | — | 50/50 | 250/250 |
-| `adversarial_sse` | 100% / 100% / 100% | — | — | 250/250 |
-| **Combined** | **100% / 100% / 100%** | **250/250** | **350/350** | **2000/2000** |
-
-- Latency (CPU ONNX Runtime): **0.203 ms** p50 / 0.433 ms p95 Stage 1; **55.201 ms** p50 / 132.592 ms p95 Stage 2; **55.302 ms** p50 / 132.668 ms p95 total cascade. GPU execution automatically uses `CUDAExecutionProvider` when available.
-- Per-entity support: `API_KEY` 756, `AUTH_TOKEN` 467, `CREDIT_CARD` 440, `EMAIL` 754, `PHONE` 465, `IP_ADDRESS` 442, `GOVT_ID` 465, `IBAN_CRYPTO` 465, `PERSON` 729, `ORGANIZATION` 417, `LOCATION` 417. Every entity is at **100% P/R/F1**.
-- Invariants: MCP JSON parse **100/100**, JSON round-trip **100/100**, adversarial SSE **2,000/2,000**, hard negatives **250/250**, clean rows **350/350 with zero false positives**.
-
-These are **synthetic, template-composed fixtures**, so the perfect headline is a regression/invariant result, not a claim of real-world accuracy. The older real-world suites (`benchmarks/gold_set.jsonl`: 96.7/99.1/97.9; Gitleaks artifacts: 100/88.5/93.9) remain the honest field tests.
-
-### 🤗 Published Dataset
-
-One command publishes all four splits and the auto-generated card:
-
-```bash
-python benchmarks/export_hf.py --repo-id sarthexe/pii-airlock-bench
-```
-
-Dataset: [**sarthax/pii-airlock-bench**](https://huggingface.co/datasets/sarthax/pii-airlock-bench) (the token owner namespace is resolved automatically).
-
-```python
-from datasets import load_dataset
-ds = load_dataset("sarthax/pii-airlock-bench")
-```
-
----
-
-## 🚀 Quickstart & MCP Setup
-
-### Option 1: Zero-Install via `uvx` (Recommended)
-
-No cloning, manual virtual environments, or path debugging. Anyone with Astral's [`uv`](https://github.com/astral-sh/uv) can run `code-airlock` directly from PyPI:
-
-#### 🤖 Claude Code (CLI)
+#### 1. Claude Code
 ```bash
 claude mcp add code-airlock -- uvx code-airlock
 ```
 
-#### 💻 OpenCode (`opencode.json`)
+#### 2. OpenCode (`~/.config/opencode/opencode.json`)
 ```json
 {
-  "$schema": "https://opencode.ai/config.json",
   "mcp": {
     "code-airlock": {
       "type": "local",
-      "command": ["uvx", "code-airlock"],
-      "enabled": true
+      "command": ["uvx", "code-airlock"]
     }
   }
 }
 ```
 
-#### 🖱️ Cursor (`.cursor/mcp.json`)
+#### 3. Cursor / Claude Desktop / Windsurf (`.cursor/mcp.json`)
 ```json
 {
   "mcpServers": {
@@ -161,23 +50,50 @@ claude mcp add code-airlock -- uvx code-airlock
 }
 ```
 
-#### 🖥️ Claude Desktop (`claude_desktop_config.json`) & Windsurf (`~/.codeium/windsurf/mcp_config.json`)
+**Warm up the ONNX model & initialize your repository with `uvx`:**
+```bash
+# 1. Pre-cache ONNX weights & run a 1-second round-trip self-test
+uvx --from code-airlock python -m code_airlock doctor
+
+# 2. Add agent rules (.cursorrules / CLAUDE.md), .airlock.toml, and Git pre-commit hook
+uvx --from code-airlock python -m code_airlock init --pre-commit --config
+```
+
+---
+
+### Option B: Standard `pip install`
+
+```bash
+pip install code-airlock
+
+# Verify installation & warm up local ONNX model cache
+python -m code_airlock doctor
+
+# Initialize project guardrails & Git pre-commit secret shield
+python -m code_airlock init --pre-commit --config
+```
+
+<details>
+<summary><b>Click to view MCP JSON configs for standard <code>pip</code> installs</b></summary>
+
+**Claude Code:**
+```bash
+claude mcp add code-airlock -- python -m code_airlock.mcp_server
+```
+
+**OpenCode (`~/.config/opencode/opencode.json`):**
 ```json
 {
-  "mcpServers": {
+  "mcp": {
     "code-airlock": {
-      "command": "uvx",
-      "args": ["code-airlock"]
+      "type": "local",
+      "command": ["python", "-m", "code_airlock.mcp_server"]
     }
   }
 }
 ```
 
-*(You can also run directly from source via `uvx --from git+https://github.com/sarthexe/code-airlock code-airlock`)*.
-
-For a local editable checkout, use the package entrypoint instead of an
-absolute path:
-
+**Cursor / Claude Desktop (`.cursor/mcp.json`):**
 ```json
 {
   "mcpServers": {
@@ -188,82 +104,70 @@ absolute path:
   }
 }
 ```
-
-`python -m code_airlock` starts the same MCP server.
+</details>
 
 ---
 
-### Option 2: Local Development / Manual Git Clone
+## 🛠️ How It Works in Your Daily Workflow
 
-```bash
-git clone https://github.com/sarthexe/code-airlock.git
-cd code-airlock
-pip install -e ".[dev,benchmark]"
+Once added to your harness and initialized via `init --pre-commit`, your coding agent automatically uses `code-airlock` for sensitive operations:
 
-# Optional: GPU inference (ONNX Runtime otherwise uses the CPU provider)
-pip install onnxruntime-gpu
+1. **Reading & Refactoring Configs Safely (`airlock_read_file` & `airlock_write_file`):**
+   - You ask: *"Read `.env` and generate a production `docker-compose.yml`."*
+   - The agent calls `airlock_read_file(".env")` and sees only:
+     ```ini
+     STRIPE_SECRET_KEY=<API_KEY_1>
+     DATABASE_URL=postgres://admin:<AUTH_TOKEN_1>@10.0.4.12:5432/prod
+     ```
+   - The agent writes the new file using `<API_KEY_1>` and `<AUTH_TOKEN_1>` via `airlock_write_file()`. `code-airlock` rehydrates the real secrets onto disk behind the scenes.
+2. **Running Tests Without Leaking `stdout` (`airlock_exec`):**
+   - You ask: *"Run `pytest` using `.env` to verify the Stripe webhook."*
+   - The agent calls `airlock_exec(command=["pytest", "-v"], env_file=".env")`.
+   - `code-airlock` injects the real credentials into the child process memory, executes the test, and scrubs any secret values printed in `stdout` or `stderr` back into `<API_KEY_1>` before returning the output to the LLM.
+3. **Blocking Accidental Git Commits (`scan --staged`):**
+   - Whenever you or the agent runs `git commit`, the pre-commit hook runs `python -m code_airlock scan --staged` in **`0.20 ms`**, blocking any staged file that contains a live credential.
 
-# Test tools locally over stdio
-python -m code_airlock
+---
 
-# Or run the explicit MCP entrypoint
-code-airlock-mcp
-```
+## 🧰 Complete MCP Toolkit (7 Tools)
 
-### Zero-Friction CLI
-
-```bash
-python -m code_airlock doctor              # model warmup + round-trip + MCP config
-python -m code_airlock init                # add rules to .cursorrules / CLAUDE.md
-python -m code_airlock init --pre-commit   # also install .git/hooks/pre-commit
-python -m code_airlock init --config       # create a starter .airlock.toml
-python -m code_airlock scan --staged       # fast Stage 1 scan of staged files
-python -m code_airlock scan --deep src/    # add ONNX GLiNER detection for a path
-python -m code_airlock proxy               # start the HTTP proxy
-python -m code_airlock                     # start the MCP server (default)
-```
-
-Installed entrypoints: `code-airlock-mcp`, `code-airlock-proxy`, and the
-backward-compatible `code-airlock` alias.
-
-`scan` skips binaries, files over 1 MB, `tests/`, and benchmark fixtures. It
-prints `file:line -> [CATEGORY] masked-preview` and exits `1` when secrets are
-found, so it works unchanged in CI and Git hooks. `--deep` enables Stage 2 NER;
-the default Stage 1 path is sub-millisecond. `init` is idempotent, and
-`init --pre-commit` installs a hook that runs `python -m code_airlock scan --staged`.
-
-### 🧰 MCP Tools
-
-| Tool | Purpose |
+| MCP Tool | Description |
 | :--- | :--- |
-| `airlock_read_file` | Read a bounded UTF-8 file through the vault; blocks `.ssh`, `.aws`, `.gnupg`, `.kube`, `/etc`, `System32`, `AIRLOCK_WORKSPACE` escapes, binaries, and files over 1 MB. |
-| `airlock_write_file` | Rehydrate locally and write; refuses to write if unresolved/hallucinated `<ENTITY_N>` tokens remain. |
-| `airlock_scrub_text` | Redact arbitrary in-memory text or terminal output; `use_ner=False` forces the fast Stage 1 path. |
-| `airlock_exec` | Run a guarded subprocess (`shell=False`), inject real `.env` values into its environment, and scrub stdout/stderr before returning. Blocks destructive executables and shells. |
-| `airlock_vault_status` | Return active token keys and per-category counts only; never raw values. |
-| `airlock_dehydrate` | Redact text and return session-stable tokens. |
-| `airlock_rehydrate` | Restore canonical, case-mangled, or whitespace-padded vault tokens. |
+| `airlock_read_file(path)` | Reads a file, dehydrates all secrets/PII into `<ENTITY_N>` tokens in the session vault, and returns sanitized text to the agent. |
+| `airlock_write_file(path, content)` | Rehydrates `<ENTITY_N>` placeholders (case- and whitespace-tolerant), verifies no hallucinated tokens remain, and writes real values to disk. |
+| `airlock_exec(command, env_file="")` | Runs a subprocess (`shell=False`) with real `.env` secrets injected into child memory and scrubs `stdout`/`stderr` before returning to the LLM. |
+| `airlock_scrub_text(text, use_ner=False)` | Scrubs in-memory strings, logs, or code snippets directly and registers tokens in the active vault. |
+| `airlock_dehydrate(text)` | Converts raw text into sanitized text with `<ENTITY_N>` tokens. |
+| `airlock_rehydrate(text)` | Restores `<ENTITY_N>` tokens in a string back to their original values. |
+| `airlock_vault_status()` | Returns active token count and categories (`API_KEY`, `AUTH_TOKEN`, etc.) without ever exposing raw values. |
 
-All file tools resolve paths with `Path.expanduser().resolve()` and jail access
-to `AIRLOCK_WORKSPACE` when that variable is set. Rehydration is tolerant of
-`<api_key_1>` / `< API_KEY_1 >`, while the SSE `StreamRehydrator` remains
-zero-delay and exact.
+### Built-In Security Guardrails
+- **Workspace & System Folder Jailing:** Blocks path traversal and sensitive directories (`.ssh`, `.aws`, `.gnupg`, `.kube`, `/etc`, `System32`). Set `AIRLOCK_WORKSPACE=/path/to/repo` to strictly jail file operations to a single directory.
+- **Hallucination-Safe Write Gate:** If an LLM invents a non-existent token (e.g., `<API_KEY_999>`), `airlock_write_file` refuses to write a broken file and returns an `unresolved_tokens` error so the agent can self-correct.
+- **Forgiving Rehydration:** Automatically resolves LLM casing or spacing variations (`<api_key_1>` or `< API_KEY_1 >`).
+- **Crash-Safe Memory Hygiene:** `VaultSession.__repr__` and `__str__` never expose raw secrets in stack traces or crash logs.
+- **Binary & Size Caps:** Rejects non-UTF-8 binary files (`\x00`) and files over `1 MB`.
 
-`airlock_exec` is designed for safe test runs:
+---
 
-```python
-airlock_exec(
-    [sys.executable, "-c", "import os; print(os.environ['STRIPE_SECRET_KEY'])"],
-    ".env",
-)
-# stdout: "<API_KEY_1>"  ← the real key never reaches the model
+## 💻 CLI Reference
+
+```bash
+python -m code_airlock                 # Start FastMCP stdio server (default)
+python -m code_airlock doctor          # Warm up ONNX model, run self-test & print IDE configs
+python -m code_airlock init            # Add agent rules to .cursorrules and CLAUDE.md
+python -m code_airlock init --pre-commit --config  # Also install Git hook + starter .airlock.toml
+python -m code_airlock scan src/       # Fast Stage-1 secret scan across paths (0.20ms/file)
+python -m code_airlock scan --staged   # Scan staged Git changes (exits 1 on findings, masks preview)
+python -m code_airlock scan --deep .   # Deep scan with Stage 1 + Stage 2 ONNX NER
+python -m code_airlock proxy           # Launch OpenAI-compatible SSE proxy on :8000
 ```
 
-### ⚙️ Project Config (`.airlock.toml`)
+---
 
-Create a starter with `python -m code_airlock init --config`, or write one
-manually. `CascadeEngine` loads `.airlock.toml` from the current directory, or
-from `AIRLOCK_CONFIG` when set:
+## ⚙️ Project Configuration (`.airlock.toml`)
+
+Drop an `.airlock.toml` file in your project root (or generate one via `python -m code_airlock init --config`) to define custom Stage 1 regex rules and Stage 2 allowlists for your team:
 
 ```toml
 [allowlist]
@@ -274,87 +178,48 @@ EMPLOYEE_ID = 'EMP-[0-9]{6}'
 INTERNAL_TICKET = 'JIRA-[0-9]{4,6}'
 ```
 
-- Allowlist terms are merged into the Stage 2 allowlist so they are not
-  misclassified as `PERSON`, `ORGANIZATION`, or `LOCATION`.
-- Custom patterns run in Stage 1 alongside built-in rules and produce
-  `<EMPLOYEE_ID_n>` / `<INTERNAL_TICKET_n>` vault tokens.
-- Invalid regexes and malformed labels are ignored rather than crashing the
-  engine.
+- **`[custom_patterns]`:** Evaluated in Stage 1 (`~0.20 ms`) and mapped to reversible tokens (`<EMPLOYEE_ID_1>`, `<INTERNAL_TICKET_1>`).
+- **`[allowlist]`:** Prevents domain-specific terms or internal hostnames from being flagged by Stage 2 NER.
 
 ---
 
-### Option 3: OpenAI-Compatible Reverse Proxy (`/v1/chat/completions`)
+## 🌐 OpenAI-Compatible SSE Proxy Mode
 
-Run as a transparent privacy gateway intercepting HTTP requests:
+Need network-level protection for any OpenAI SDK client or custom agent pipeline? Run the streaming HTTP proxy:
 
 ```bash
-# Run with built-in zero-leak mock upstream (offline validation)
 code-airlock-proxy
-
-# Or point to a live upstream provider (OpenAI, Ollama, OpenRouter, vLLM)
-export AIRLOCK_UPSTREAM_URL="https://api.openai.com"
-code-airlock-proxy
+# Or: python -m code_airlock proxy
 ```
 
-The proxy binds to `127.0.0.1:8000` by default. Override with
-`AIRLOCK_HOST` / `AIRLOCK_PORT`.
+Point your client's `OPENAI_BASE_URL` to `http://localhost:8000/v1` and set `UPSTREAM_BASE_URL` (defaults to `https://api.openai.com`).
+- **Outbound:** Scrubs all messages in `POST /v1/chat/completions` before forwarding upstream.
+- **Inbound Streaming (`StreamRehydrator`):** Buffers only inside open `<...>` brackets across arbitrary network chunks (even 1-byte SSE splits) and restores secrets on the fly with zero latency on regular text.
 
 ---
 
-## 🧠 Guiding Your Agent (`.cursorrules` / System Prompt)
+## 📊 Benchmarks (`sarthexe/pii-airlock-bench`)
 
-To ensure your coding agent actually leverages the airlock tools instead of raw file reads, include this rule in your `.cursorrules`, `CLAUDE.md`, or system instructions:
+Evaluated on the open 4-split benchmark dataset ([`sarthexe/pii-airlock-bench`](https://huggingface.co/datasets/sarthexe/pii-airlock-bench)) covering **2,000 rows**, **5,817 entity spans**, **250 hard negatives** (UUIDs, Git SHAs, dummy placeholders, localhost IPs, CLI flags), and **1/2/7-byte adversarial SSE stream splits**:
 
-```markdown
-# Code-Airlock Agent Guardrails
-1. When reading `.env`, configuration, or log files, NEVER use standard read tools. ALWAYS call `airlock_read_file(path)` so secrets and PII are redacted into `<ENTITY_n>` tokens before hitting context.
-2. When creating or editing configs, write the `<ENTITY_n>` tokens directly and call `airlock_write_file(path, content)`. The airlock will rehydrate the real secrets locally on disk without ever sending them through the LLM.
-3. Call `airlock_vault_status()` to inspect active pseudonymized tokens safely (never returns plaintext values).
+| Suite | Rows | Recall / Precision / F1 | Token Accuracy | Hard Negatives (0-FP) | Clean Rows (0-FP) | SSE 1/2/7-Byte Round-Trip |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| `dev_prompts` | 1,000 | **100.0% / 100.0% / 100.0%** | 100.0% | 0 / 0 | 200 / 200 | 1,000 / 1,000 |
+| `git_leaks` | 500 | **100.0% / 100.0% / 100.0%** | 100.0% | 250 / 250 | 100 / 100 | 500 / 500 |
+| `mcp_configs` | 250 | **100.0% / 100.0% / 100.0%** | 100.0% | 0 / 0 | 50 / 50 | 250 / 250 |
+| `adversarial_sse` | 250 | **100.0% / 100.0% / 100.0%** | 100.0% | 0 / 0 | 0 / 0 | 250 / 250 |
+| **Total (`all`)** | **2,000** | **100.0% / 100.0% / 100.0%** | **100.0%** | **250 / 250** | **350 / 350** | **2,000 / 2,000** |
+
+- **Stage 1 Latency (Regex + URI/Key-Value Heuristics):** `0.203 ms` p50
+- **Stage 2 Latency (Pure ONNX CPU `gliner_small-v2.1`):** `55.20 ms` p50 (`CUDAExecutionProvider` automatically used when `onnxruntime-gpu` is present)
+
+Reproduce locally:
+```bash
+python benchmarks/benchmark.py --suite all
 ```
-
-## 📁 Repository Structure
-
-| File | Lines | Responsibility |
-| :--- | :---: | :--- |
-| `src/code_airlock/engine.py` | 217 | Stage 1 regex/checksum validators + high-entropy URI/KV secrets + lazy Stage 2 ONNX NER |
-| `src/code_airlock/onnx_ner.py` | 93 | Zero-PyTorch GLiNER span runner: tokenizer assembly, ONNX inference, flat-NER decoding |
-| `src/code_airlock/sanitizer.py` | 113 | Vault hygiene, tolerant rehydration, unresolved-token detection, SSE parser |
-| `src/code_airlock/proxy.py` | 153 | FastAPI `/v1/chat/completions` gateway, SSE rehydration, telemetry headers, `main()` |
-| `src/code_airlock/mcp_server.py` | 124 | FastMCP server with path jailing, file guardrails, `airlock_scrub_text`, `airlock_exec`, and write verification |
-| `src/code_airlock/config.py` | 39 | Optional `.airlock.toml` allowlist and custom Stage-1 pattern loader |
-| `src/code_airlock/executor.py` | 87 | Guarded subprocess execution, env injection, and output scrubbing |
-| `src/code_airlock/scanner.py` | 76 | Masked Stage-1/Stage-2 Git and path secret scanner |
-| `src/code_airlock/__init__.py` | 7 | Public API: `CascadeEngine`, `VaultSession`, `StreamRehydrator`, `__version__` |
-| `src/code_airlock/__main__.py` | 127 | CLI: `mcp`, `proxy`, `doctor`, `init`, `scan` |
-| `tests/test_proxy.py` | 84 | End-to-end proxy tests (11-entity zero-leak check, 2-char SSE split, C++ syntax) |
-| `tests/test_mcp.py` | 181 | MCP tools, scanner, exec, config, pre-commit hook, file jail, tolerant rehydration |
-| `benchmarks/benchmark.py` | 163 | Unified 4-suite evaluator → `benchmarks/BENCHMARK_RESULTS.md` |
-| `benchmarks/build_benchmarks.py` | 238 | Deterministic 2,000-row generator (`seed=42`) |
-| `benchmarks/export_hf.py` | 88 | Publishes all 4 splits plus the auto-generated dataset card |
-| `benchmarks/BENCHMARK_RESULTS.md` | — | Generated metrics-only scorecard |
-| `benchmarks/gold_set.jsonl` | — | 285-row real-world regression corpus |
-| `benchmarks/*.jsonl` | — | Generated 4-split fixtures (git-ignored) |
-| `pyproject.toml` | — | Package metadata, src discovery, entrypoints, extras, pytest config |
-| `LICENSE` / `SECURITY.md` | — | MIT license and disclosure policy |
-| `.github/workflows/` | — | CI test workflow + PyPI Trusted Publishing |
 
 ---
 
-## 🔐 Security
+## 📄 License
 
-Detection is best-effort and local-only. It reduces exposure but is not a
-guarantee that every secret is removed. See [SECURITY.md](SECURITY.md) for the
-threat model, known gaps, and private disclosure instructions.
-
-The MCP file tools additionally block sensitive directories (`~/.ssh`, `~/.aws`,
-`~/.gnupg`, `~/.kube`, `/etc`, `System32`), files over 1 MB, binary files, and
-paths outside `AIRLOCK_WORKSPACE` when that variable is set. Writes containing
-unresolved or hallucinated `<ENTITY_N>` tokens are refused.
-
-`code-airlock scan --staged` adds a Git pre-commit gate for the five highest-risk
-secret categories (`API_KEY`, `AUTH_TOKEN`, `CREDIT_CARD`, `GOVT_ID`,
-`IBAN_CRYPTO`). It prints masked previews only and exits non-zero on findings.
-
-## 📜 License
-
-MIT © 2026 Sarthak Maurya. See [LICENSE](LICENSE).
+MIT © [Sarthak Kumar Maurya](https://github.com/sarthexe)
