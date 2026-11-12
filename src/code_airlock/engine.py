@@ -159,7 +159,7 @@ def merge_spans(stage1_spans: list[Span], stage2_spans: list[Span]) -> list[Span
     return sorted(s1 + s2, key=lambda s: s.start)
 
 class CascadeEngine:
-    def __init__(self, device: str | None = None, model_name: str = "urchade/gliner_small-v2.1",
+    def __init__(self, device: str | None = None, model_name: str = "onnx-community/gliner_small-v2.1",
                  threshold: float = 0.5, lazy: bool = True):
         self.device = device
         self.model_name = model_name
@@ -171,11 +171,9 @@ class CascadeEngine:
 
     def _get_ner(self):
         if self._ner_model is None:
-            import torch
-            from gliner import GLiNER
-            self.device = self.device or ("cuda" if torch.cuda.is_available() else "cpu")
-            self._ner_model = GLiNER.from_pretrained(self.model_name)
-            if hasattr(self._ner_model, "to"): self._ner_model.to(self.device)
+            from .onnx_ner import OnnxGLiNER
+            self._ner_model = OnnxGLiNER(model_id=self.model_name)
+            self.device = self.device or self._ner_model.provider
         return self._ner_model
 
     def detect_stage1(self, text: str) -> list[Span]:

@@ -108,6 +108,7 @@ def report(results, total):
     out = []
     out.append("# Code-Airlock Unified Benchmark Results\n")
     out.append("Metrics only. No raw credentials or PII values are included.\n")
+    out.append("Runtime: `code-airlock` v1.4.0 with ONNX Runtime (no PyTorch).\n")
     out.append("## Suite Scorecard\n")
     out.append("| Suite | Rows | Strict P / R / F1 | Partial P / R / F1 | Hard-Neg | Clean 0-FP | SSE |")
     out.append("| :--- | ---: | :---: | :---: | :---: | :---: | :---: |")
@@ -123,7 +124,7 @@ def report(results, total):
     out.append("\n## Latency\n")
     out.append("| Stage | p50 | p95 |")
     out.append("| :--- | ---: | ---: |")
-    for name, arr in (("Stage 1 (deterministic)", total["s1"]), ("Stage 2 (GLiNER)", total["s2"]), ("Total cascade", total["tot"])):
+    for name, arr in (("Stage 1 (deterministic)", total["s1"]), ("Stage 2 (ONNX GLiNER)", total["s2"]), ("Total cascade", total["tot"])):
         out.append(f"| {name} | {np.percentile(arr, 50):.3f} ms | {np.percentile(arr, 95):.3f} ms |")
     out.append("\n## Per-Entity Support & Metrics\n")
     out.append("| Entity | GT | Strict P / R / F1 | Partial P / R / F1 |")

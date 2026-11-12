@@ -5,13 +5,13 @@
 `code-airlock` is a zero-trust privacy layer for LLMs and agentic coding harnesses. It intercepts sensitive credentials, financial identifiers, and personal data before they leave your machine, replaces them with deterministic session tokens (`<API_KEY_1>`, `<PERSON_1>`), and seamlessly rehydrates them back into real-time Server-Sent Events (SSE) token streams or local file writes.
 
 * **Dual Deployment Modes:** Run as a drop-in **OpenAI-compatible `/v1/chat/completions` reverse proxy** or as a **Model Context Protocol (MCP) server** (`stdio`) for OpenCode, Cursor, and Claude Code.
-* **2-Stage Hybrid Cascade:** Combines sub-millisecond deterministic regex + mathematical checksums (**Luhn, Verhoeff $D_5$, ISO 7064 MOD-97**) with contextual neural NER (`urchade/gliner_small-v2.1`) and a curated developer allowlist.
+* **2-Stage Hybrid Cascade:** Combines sub-millisecond deterministic regex + mathematical checksums (**Luhn, Verhoeff $D_5$, ISO 7064 MOD-97**) with contextual neural NER (`onnx-community/gliner_small-v2.1` on **ONNX Runtime**) and a curated developer allowlist.
 * **Deterministic Secret Coverage:** Stage 1 also captures inline connection-string passwords and `PASSWORD` / `SECRET` / `ACCESS_TOKEN` / `API_KEY` assignments, excluding placeholders, booleans, function calls, and existing vault tokens.
 * **Git & CI Guardrails:** `code-airlock scan --staged` catches secrets in staged files at sub-millisecond Stage 1 speed, masks every value in output, and installs a `.git/hooks/pre-commit` gate via `init --pre-commit`.
 * **Safe Agent Execution:** `airlock_exec` injects real `.env` values into a guarded subprocess (`shell=False`) and scrubs both stdout and stderr before returning them to the model.
 * **Project-Aware Rules:** `.airlock.toml` adds team allowlist terms and custom Stage-1 regexes such as `EMPLOYEE_ID = 'EMP-[0-9]{6}'`.
 * **Zero-Delay Streaming Rehydration:** Stateful sliding-window SSE parser reassembles split tokens across arbitrary 2-byte network chunks without delaying code comparison or bitwise operators (`<`, `<<`, `template <typename T>`).
-* **Minimalist Systems Footprint:** ~800 lines of core runtime code (`engine.py`, `sanitizer.py`, `proxy.py`, `mcp_server.py`, `scanner.py`, `config.py`, `executor.py`) plus a deterministic 2,000-row benchmark harness.
+* **Minimalist Systems Footprint:** ~850 lines of core runtime code (`engine.py`, `onnx_ner.py`, `sanitizer.py`, `proxy.py`, `mcp_server.py`, `scanner.py`, `config.py`, `executor.py`) plus a deterministic 2,000-row benchmark harness. One universal install — no PyTorch, no CUDA toolkit.
 
 ---
 
@@ -32,7 +32,7 @@ flowchart TB
         direction TB
         subgraph Cascade["engine.py — 2-Stage Hybrid Cascade"]
             S1["⚡ Stage 1: Deterministic Fast-Pass (~0.44ms)<br/>• Regex: API_KEY, AUTH_TOKEN, EMAIL, PHONE, IPv4<br/>• Checksums: Luhn (Card), Verhoeff (ID), MOD-97 (IBAN)"]:::stage1
-            S2["🧠 Stage 2: Guarded Neural NER (GLiNER-small)<br/>• Entities: PERSON, ORGANIZATION, LOCATION<br/>• Guards: 93-term TECH_ALLOWLIST + Code/Pronoun Filter"]:::stage2
+            S2["🧠 Stage 2: Guarded Neural NER (GLiNER-small · ONNX)<br/>• Entities: PERSON, ORGANIZATION, LOCATION<br/>• Guards: 93-term TECH_ALLOWLIST + Code/Pronoun Filter"]:::stage2
             Merger{"⚖️ Span Conflict Resolver<br/>Stage 1 Overrides Stage 2<br/>Longest Span Wins"}:::merger
             S1 & S2 --> Merger
         end
@@ -91,7 +91,7 @@ Evaluated on **285 developer prompts** (sampled from `CodeAlpaca_20K` and `OpenC
 | `adversarial_sse` | 250 | 250 | 0 / 0 | 1,217 |
 | **Total** | **2,000** | **1,400** | **350 / 250** | **5,817** |
 
-Reference result (strict exact-span matching, `code-airlock` v1.3.0):
+Reference result (strict exact-span matching, `code-airlock` v1.4.0 on CPU ONNX Runtime):
 
 | Split | Strict P / R / F1 | Hard-neg | Clean 0-FP | SSE 1/2/7-byte |
 | :--- | :---: | :---: | :---: | :---: |
@@ -101,7 +101,7 @@ Reference result (strict exact-span matching, `code-airlock` v1.3.0):
 | `adversarial_sse` | 100% / 100% / 100% | — | — | 250/250 |
 | **Combined** | **100% / 100% / 100%** | **250/250** | **350/350** | **2000/2000** |
 
-- Latency: **0.232 ms** p50 / 0.428 ms p95 Stage 1; **32.354 ms** p50 / 43.966 ms p95 Stage 2; **32.704 ms** p50 / 44.112 ms p95 total cascade.
+- Latency (CPU ONNX Runtime): **0.203 ms** p50 / 0.433 ms p95 Stage 1; **55.201 ms** p50 / 132.592 ms p95 Stage 2; **55.302 ms** p50 / 132.668 ms p95 total cascade. GPU execution automatically uses `CUDAExecutionProvider` when available.
 - Per-entity support: `API_KEY` 756, `AUTH_TOKEN` 467, `CREDIT_CARD` 440, `EMAIL` 754, `PHONE` 465, `IP_ADDRESS` 442, `GOVT_ID` 465, `IBAN_CRYPTO` 465, `PERSON` 729, `ORGANIZATION` 417, `LOCATION` 417. Every entity is at **100% P/R/F1**.
 - Invariants: MCP JSON parse **100/100**, JSON round-trip **100/100**, adversarial SSE **2,000/2,000**, hard negatives **250/250**, clean rows **350/350 with zero false positives**.
 
@@ -200,6 +200,9 @@ git clone https://github.com/sarthexe/code-airlock.git
 cd code-airlock
 pip install -e ".[dev,benchmark]"
 
+# Optional: GPU inference (ONNX Runtime otherwise uses the CPU provider)
+pip install onnxruntime-gpu
+
 # Test tools locally over stdio
 python -m code_airlock
 
@@ -215,7 +218,7 @@ python -m code_airlock init                # add rules to .cursorrules / CLAUDE.
 python -m code_airlock init --pre-commit   # also install .git/hooks/pre-commit
 python -m code_airlock init --config       # create a starter .airlock.toml
 python -m code_airlock scan --staged       # fast Stage 1 scan of staged files
-python -m code_airlock scan --deep src/    # add GLiNER detection for a path
+python -m code_airlock scan --deep src/    # add ONNX GLiNER detection for a path
 python -m code_airlock proxy               # start the HTTP proxy
 python -m code_airlock                     # start the MCP server (default)
 ```
@@ -313,8 +316,9 @@ To ensure your coding agent actually leverages the airlock tools instead of raw 
 
 | File | Lines | Responsibility |
 | :--- | :---: | :--- |
-| `src/code_airlock/engine.py` | 219 | Stage 1 regex/checksum validators + high-entropy URI/KV secrets + lazy Stage 2 GLiNER |
-| `src/code_airlock/sanitizer.py` | 108 | Vault hygiene, tolerant rehydration, unresolved-token detection, SSE parser |
+| `src/code_airlock/engine.py` | 217 | Stage 1 regex/checksum validators + high-entropy URI/KV secrets + lazy Stage 2 ONNX NER |
+| `src/code_airlock/onnx_ner.py` | 93 | Zero-PyTorch GLiNER span runner: tokenizer assembly, ONNX inference, flat-NER decoding |
+| `src/code_airlock/sanitizer.py` | 113 | Vault hygiene, tolerant rehydration, unresolved-token detection, SSE parser |
 | `src/code_airlock/proxy.py` | 153 | FastAPI `/v1/chat/completions` gateway, SSE rehydration, telemetry headers, `main()` |
 | `src/code_airlock/mcp_server.py` | 124 | FastMCP server with path jailing, file guardrails, `airlock_scrub_text`, `airlock_exec`, and write verification |
 | `src/code_airlock/config.py` | 39 | Optional `.airlock.toml` allowlist and custom Stage-1 pattern loader |
@@ -325,7 +329,7 @@ To ensure your coding agent actually leverages the airlock tools instead of raw 
 | `tests/test_proxy.py` | 84 | End-to-end proxy tests (11-entity zero-leak check, 2-char SSE split, C++ syntax) |
 | `tests/test_mcp.py` | 181 | MCP tools, scanner, exec, config, pre-commit hook, file jail, tolerant rehydration |
 | `benchmarks/benchmark.py` | 163 | Unified 4-suite evaluator → `benchmarks/BENCHMARK_RESULTS.md` |
-| `benchmarks/build_benchmarks.py` | 239 | Deterministic 2,000-row generator (`seed=42`) |
+| `benchmarks/build_benchmarks.py` | 238 | Deterministic 2,000-row generator (`seed=42`) |
 | `benchmarks/export_hf.py` | 88 | Publishes all 4 splits plus the auto-generated dataset card |
 | `benchmarks/BENCHMARK_RESULTS.md` | — | Generated metrics-only scorecard |
 | `benchmarks/gold_set.jsonl` | — | 285-row real-world regression corpus |

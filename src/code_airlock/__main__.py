@@ -44,7 +44,7 @@ def doctor() -> int:
     expected = {"API_KEY", "AUTH_TOKEN", "EMAIL", "PERSON"}
     missing = expected - labels
     ok = restored == sample and not missing
-    print(f"[{'ok' if not missing else 'fail'}] GLiNER ready on {engine.device}; labels: {', '.join(sorted(labels))}")
+    print(f"[{'ok' if not missing else 'fail'}] GLiNER ONNX ready ({engine.device}); labels: {', '.join(sorted(labels))}")
     print(f"[{'ok' if restored == sample else 'fail'}] round-trip rehydration ({len(spans)} spans)")
     if not ok:
         if missing: print(f"[fail] missing detectors: {', '.join(sorted(missing))}")

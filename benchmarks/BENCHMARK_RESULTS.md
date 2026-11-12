@@ -2,6 +2,8 @@
 
 Metrics only. No raw credentials or PII values are included.
 
+Runtime: `code-airlock` v1.4.0 with ONNX Runtime (no PyTorch).
+
 ## Suite Scorecard
 
 | Suite | Rows | Strict P / R / F1 | Partial P / R / F1 | Hard-Neg | Clean 0-FP | SSE |
@@ -16,9 +18,9 @@ Metrics only. No raw credentials or PII values are included.
 
 | Stage | p50 | p95 |
 | :--- | ---: | ---: |
-| Stage 1 (deterministic) | 0.232 ms | 0.428 ms |
-| Stage 2 (GLiNER) | 32.354 ms | 43.966 ms |
-| Total cascade | 32.704 ms | 44.112 ms |
+| Stage 1 (deterministic) | 0.203 ms | 0.433 ms |
+| Stage 2 (ONNX GLiNER) | 55.201 ms | 132.592 ms |
+| Total cascade | 55.302 ms | 132.668 ms |
 
 ## Per-Entity Support & Metrics
 
