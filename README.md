@@ -149,6 +149,25 @@ Once added to your harness and initialized via `init --pre-commit`, your coding 
 
 ---
 
+## 🎯 Use Cases
+
+- **Refactor secret-bearing configs** — "Read `.env` and generate a production `docker-compose.yml`." The agent sees `<API_KEY_1>` and `<AUTH_TOKEN_1>`; the real values are restored only when written to disk.
+- **Run tests against real credentials** — `pytest` or integration scripts receive `.env` values in child-process memory, while `stdout` and `stderr` are scrubbed before returning to the model.
+- **Debug production logs and stack traces** — paste logs with emails, phone numbers, customer names, or tokens; the agent gets placeholders, not raw values.
+- **Work on a real repository with a hosted agent** — replace customer records, internal hostnames, and credentials with session-stable tokens during refactors, reviews, or bug fixes.
+- **Generate docs, tickets, and changelogs from customer data** — sanitize support threads or CRM exports before summarization, then rehydrate locally.
+- **Migrate legacy code and data** — inspect SQL dumps, `.env` files, CI secrets, and cloud credentials without sending live values to an LLM.
+- **Build evaluation sets from realistic prompts** — keep production-shaped examples without exposing customer or company data to an upstream provider.
+- **Support multi-harness teams** — one global `install` configures OpenCode, Claude Code, and Cursor; each developer keeps their preferred agent.
+- **Stop leaks before commit** — `code-airlock scan --staged` or the installed pre-commit hook flags credentials in staged files and exits non-zero.
+- **Add secret hygiene to CI** — run the Stage-1 scanner across a repository in milliseconds with masked findings.
+- **Offline and air-gapped development** — the ONNX model runs locally and loads from cache first, so detection needs no network after the initial download.
+- **Demos and training** — use realistic examples without leaking live customer values into notebooks, slides, or recordings.
+
+All detection happens locally. The upstream model sees only tokens, and the vault restores the real values on your machine.
+
+---
+
 ## 🧰 Complete MCP Toolkit (7 Tools)
 
 | MCP Tool | Description |
