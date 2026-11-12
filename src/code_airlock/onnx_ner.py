@@ -1,13 +1,24 @@
 """Pure ONNX GLiNER span-NER runner; no PyTorch or gliner dependency."""
 from __future__ import annotations
-import json, re
+import json, logging, re, warnings
 from pathlib import Path
 import numpy as np
 import onnxruntime as ort
 from huggingface_hub import hf_hub_download
 from tokenizers import Tokenizer
 
+logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
+warnings.filterwarnings("ignore", category=UserWarning, module="huggingface_hub")
+
 WORD_RE = re.compile(r"\w+(?:[-_]\w+)*|\S")
+
+
+def _fetch_file(model_id: str, filename: str) -> str:
+    """Resolve from the local HF cache first, only hitting the network on a miss."""
+    try:
+        return hf_hub_download(model_id, filename=filename, local_files_only=True)
+    except Exception:
+        return hf_hub_download(model_id, filename=filename)
 
 
 class OnnxGLiNER:
@@ -16,8 +27,8 @@ class OnnxGLiNER:
     def __init__(self, model_id: str = "onnx-community/gliner_small-v2.1",
                  model_file: str = "onnx/model.onnx") -> None:
         self.model_id = model_id
-        self.tokenizer = Tokenizer.from_file(hf_hub_download(model_id, "tokenizer.json"))
-        config = json.loads(Path(hf_hub_download(model_id, "gliner_config.json")).read_text(encoding="utf-8"))
+        self.tokenizer = Tokenizer.from_file(_fetch_file(model_id, "tokenizer.json"))
+        config = json.loads(Path(_fetch_file(model_id, "gliner_config.json")).read_text(encoding="utf-8"))
         self.max_width = int(config.get("max_width", 12))
         self.cls_id = self.tokenizer.token_to_id("[CLS]") or 1
         self.sep_id = self.tokenizer.token_to_id("[SEP]") or 2
@@ -27,7 +38,7 @@ class OnnxGLiNER:
         providers = [p for p in ("CUDAExecutionProvider", "CPUExecutionProvider") if p in available]
         self.provider = providers[0] if providers else "CPUExecutionProvider"
         self.session = ort.InferenceSession(
-            hf_hub_download(model_id, model_file),
+            _fetch_file(model_id, model_file),
             providers=providers or ["CPUExecutionProvider"],
         )
 
