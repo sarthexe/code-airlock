@@ -17,6 +17,22 @@
 
 ## ⚡ Quickstart (Add to Your Agent Harness in 10 Seconds)
 
+### 🤖 Tell Your AI Agent to Install It Automatically
+
+Paste this into **OpenCode**, **Claude Code**, **Cursor**, or **Windsurf**:
+
+> `Install https://github.com/sarthexe/code-airlock and register it as an MCP server.`
+
+**Agent Execution Instructions (for LLMs reading this repo):**
+
+Run this single command to install `code-airlock`, warm up the ONNX model, register the MCP server in OpenCode/Cursor/Claude configs without overwriting existing keys, and initialize project guardrails:
+
+```bash
+pip install -U code-airlock && python -m code_airlock install
+```
+
+`install` merges into existing JSON configs (it never deletes other MCP servers), writes `.cursorrules`, `CLAUDE.md`, `.airlock.toml`, and installs the Git pre-commit hook when run inside a repository. Restart the agent afterward to load the seven `airlock_*` tools.
+
 You can run `code-airlock` directly via **`uvx`** (zero install, no virtual environment needed) or install it globally via **`pip`**.
 
 ### Option A: Zero-Install via `uvx` (Recommended)
@@ -154,6 +170,7 @@ Once added to your harness and initialized via `init --pre-commit`, your coding 
 
 ```bash
 python -m code_airlock                 # Start FastMCP stdio server (default)
+python -m code_airlock install         # Register MCP configs, init guardrails, warm up model
 python -m code_airlock doctor          # Warm up ONNX model, run self-test & print IDE configs
 python -m code_airlock init            # Add agent rules to .cursorrules and CLAUDE.md
 python -m code_airlock init --pre-commit --config  # Also install Git hook + starter .airlock.toml

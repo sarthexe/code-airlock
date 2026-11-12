@@ -1,0 +1,75 @@
+# code-airlock
+
+> Zero-trust PII and secret redaction for coding agents. Replaces API keys, passwords, and personal data with reversible session tokens before they reach an LLM, then restores them locally in files, subprocess output, and streamed replies.
+
+## Install and register (one command)
+
+```bash
+pip install -U code-airlock && python -m code_airlock install
+```
+
+This warms up the local ONNX model, merges the MCP server into existing OpenCode / Cursor / Claude Code configs without deleting other servers, writes `.cursorrules`, `CLAUDE.md`, and `.airlock.toml`, and installs the Git pre-commit hook inside a repository. Restart the agent afterward.
+
+## Agent instructions
+
+When the user asks to install https://github.com/sarthexe/code-airlock, run the command above. Do not hand-edit JSON unless the command fails. Then restart the agent so the `airlock_*` tools are discovered.
+
+## MCP configuration
+
+OpenCode (`~/.config/opencode/opencode.json`):
+
+```json
+{
+  "mcp": {
+    "code-airlock": {
+      "type": "local",
+      "command": ["python", "-m", "code_airlock.mcp_server"]
+    }
+  }
+}
+```
+
+Cursor / Claude Code / Windsurf (`.cursor/mcp.json` or `.mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "code-airlock": {
+      "command": "python",
+      "args": ["-m", "code_airlock.mcp_server"]
+    }
+  }
+}
+```
+
+Zero-install alternative: replace `python -m code_airlock.mcp_server` with `uvx code-airlock`.
+
+## Tools
+
+- `airlock_read_file(path)` — read a text file with secrets/PII replaced by `<ENTITY_N>` tokens.
+- `airlock_write_file(path, content)` — restore tokens locally and write, refusing unresolved hallucinated tokens.
+- `airlock_scrub_text(text, use_ner=False)` — redact arbitrary text; `use_ner=False` is the fast rule-only path.
+- `airlock_exec(command, env_file="")` — run a guarded subprocess with real `.env` values injected and stdout/stderr scrubbed.
+- `airlock_dehydrate(text)` — return sanitized text plus session-stable tokens.
+- `airlock_rehydrate(text)` — restore tokens from the active session vault.
+- `airlock_vault_status()` — token counts and categories only; never raw values.
+
+## Usage rules for agents
+
+Always use `airlock_read_file` and `airlock_write_file` for `.env`, `*secret*`, credentials, and deployment configs. Never inspect those files with `cat`, `grep`, or native read tools. Use `airlock_exec` for test commands that need `.env` values.
+
+## Verify
+
+```bash
+python -m code_airlock doctor
+python -m code_airlock scan src/
+```
+
+## Proxy mode
+
+Run `python -m code_airlock proxy` and point the client's `OPENAI_BASE_URL` at `http://127.0.0.1:8000/v1`. Only traffic sent to the proxy is scrubbed and rehydrated.
+
+## Links
+
+- Repository: https://github.com/sarthexe/code-airlock
+- Dataset: https://huggingface.co/datasets/sarthexe/pii-airlock-bench

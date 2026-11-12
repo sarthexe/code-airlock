@@ -29,7 +29,7 @@ CONFIG = """{
 }"""
 
 
-def doctor() -> int:
+def doctor(show_config: bool = True) -> int:
     from .engine import CascadeEngine
     from .sanitizer import VaultSession
     sample = ("API key sk-" + "proj-abc123def456ghi789jkl012mno345; "
@@ -49,10 +49,11 @@ def doctor() -> int:
     if not ok:
         if missing: print(f"[fail] missing detectors: {', '.join(sorted(missing))}")
         return 1
-    print("\nOpenCode (~/.config/opencode/opencode.json):")
-    print('{"mcp": {"code-airlock": {"type": "local", "command": ["python", "-m", "code_airlock.mcp_server"]}}}')
-    print("\nCursor / Claude Code / Claude Desktop:")
-    print(CONFIG)
+    if show_config:
+        print("\nOpenCode (~/.config/opencode/opencode.json):")
+        print('{"mcp": {"code-airlock": {"type": "local", "command": ["python", "-m", "code_airlock.mcp_server"]}}}')
+        print("\nCursor / Claude Code / Claude Desktop:")
+        print(CONFIG)
     return 0
 
 
@@ -90,6 +91,35 @@ def init(pre_commit: bool = False, config: bool = False) -> int:
     return 0
 
 
+def install(project: bool = True, home: Path | None = None, workspace: Path | None = None,
+            check: bool = True) -> int:
+    """Register the MCP server in agent configs, initialize guardrails, and warm up the model."""
+    from .config import merge_mcp_config
+    home = home or Path.home()
+    workspace = workspace or Path.cwd()
+    command = [sys.executable, "-m", "code_airlock.mcp_server"]
+    targets = [(home / ".config" / "opencode" / "opencode.json", "mcp",
+                {"type": "local", "command": command})]
+    if project:
+        cursor = {"command": sys.executable, "args": ["-m", "code_airlock.mcp_server"]}
+        targets += [(workspace / ".cursor" / "mcp.json", "mcpServers", cursor),
+                    (workspace / ".mcp.json", "mcpServers", cursor)]
+    failed = 0
+    print("[ok] registering code-airlock MCP server")
+    for path, top_key, server in targets:
+        try:
+            target, existed = merge_mcp_config(path, top_key, "code-airlock", server)
+            print(f"[ok] {'updated' if existed else 'created'}: {target}")
+        except (OSError, ValueError) as exc:
+            failed = 1
+            print(f"[fail] {exc}")
+    if check:
+        failed |= init(pre_commit=True, config=True)
+        failed |= doctor(show_config=False)
+    print("\nRestart your agent to load the code-airlock tools.")
+    return 1 if failed else 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="code-airlock", description="Local PII/secret gate for coding agents")
     sub = parser.add_subparsers(dest="command")
@@ -99,6 +129,12 @@ def main() -> int:
     init_cmd = sub.add_parser("init", help="add code-airlock rules and optional pre-commit hook")
     init_cmd.add_argument("--pre-commit", action="store_true", help="install .git/hooks/pre-commit")
     init_cmd.add_argument("--config", action="store_true", help="create a starter .airlock.toml")
+    install_cmd = sub.add_parser("install", help="register agent configs, initialize guardrails, and warm up the model")
+    install_group = install_cmd.add_mutually_exclusive_group()
+    install_group.add_argument("--project", dest="project", action="store_true", default=True,
+                               help="write .cursor/mcp.json and .mcp.json (default)")
+    install_group.add_argument("--no-project", dest="project", action="store_false",
+                               help="skip project MCP configs")
     scan_cmd = sub.add_parser("scan", help="scan files or staged changes for secrets")
     scan_cmd.add_argument("--staged", action="store_true", help="scan files staged in git")
     scan_cmd.add_argument("--deep", action="store_true", help="enable Stage 2 GLiNER detection")
@@ -116,6 +152,8 @@ def main() -> int:
         return doctor()
     if args.command == "init":
         return init(args.pre_commit, args.config)
+    if args.command == "install":
+        return install(args.project)
     if args.command == "scan":
         from .scanner import scan
         return scan(args.paths, staged=args.staged, deep=args.deep)

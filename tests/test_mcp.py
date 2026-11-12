@@ -179,3 +179,27 @@ def test_airlock_toml_custom_patterns_and_allowlist(tmp_path, monkeypatch):
     vault = airlock.VaultSession()
     sanitized, _ = vault.dehydrate("MyInternalApp EMP-123456 and JIRA-4567", spans)
     assert "<EMPLOYEE_ID_1>" in sanitized
+
+
+def test_install_merges_configs_safely(tmp_path, monkeypatch):
+    opencode = tmp_path / ".config" / "opencode" / "opencode.json"
+    opencode.parent.mkdir(parents=True)
+    opencode.write_text(json.dumps({
+        "theme": "dark",
+        "mcp": {"rea": {"type": "local", "command": ["rea"]}},
+    }), encoding="utf-8")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli, "init", lambda *a, **k: 0)
+    monkeypatch.setattr(cli, "doctor", lambda *a, **k: 0)
+    monkeypatch.setattr(sys, "argv", ["code-airlock", "install"])
+    assert cli.main() == 0
+
+    data = json.loads(opencode.read_text(encoding="utf-8"))
+    assert data["theme"] == "dark"
+    assert data["mcp"]["rea"] == {"type": "local", "command": ["rea"]}
+    assert data["mcp"]["code-airlock"]["command"][1:] == ["-m", "code_airlock.mcp_server"]
+    for config in (tmp_path / ".cursor" / "mcp.json", tmp_path / ".mcp.json"):
+        project = json.loads(config.read_text(encoding="utf-8"))
+        assert project["mcpServers"]["code-airlock"]["args"] == ["-m", "code_airlock.mcp_server"]
