@@ -149,20 +149,62 @@ Once added to your harness and initialized via `init --pre-commit`, your coding 
 
 ---
 
-## 🎯 Use Cases
+## 💡 Real-World Use Cases
 
-- **Refactor secret-bearing configs** — "Read `.env` and generate a production `docker-compose.yml`." The agent sees `<API_KEY_1>` and `<AUTH_TOKEN_1>`; the real values are restored only when written to disk.
-- **Run tests against real credentials** — `pytest` or integration scripts receive `.env` values in child-process memory, while `stdout` and `stderr` are scrubbed before returning to the model.
-- **Debug production logs and stack traces** — paste logs with emails, phone numbers, customer names, or tokens; the agent gets placeholders, not raw values.
-- **Work on a real repository with a hosted agent** — replace customer records, internal hostnames, and credentials with session-stable tokens during refactors, reviews, or bug fixes.
-- **Generate docs, tickets, and changelogs from customer data** — sanitize support threads or CRM exports before summarization, then rehydrate locally.
-- **Migrate legacy code and data** — inspect SQL dumps, `.env` files, CI secrets, and cloud credentials without sending live values to an LLM.
-- **Build evaluation sets from realistic prompts** — keep production-shaped examples without exposing customer or company data to an upstream provider.
-- **Support multi-harness teams** — one global `install` configures OpenCode, Claude Code, and Cursor; each developer keeps their preferred agent.
-- **Stop leaks before commit** — `code-airlock scan --staged` or the installed pre-commit hook flags credentials in staged files and exits non-zero.
-- **Add secret hygiene to CI** — run the Stage-1 scanner across a repository in milliseconds with masked findings.
-- **Offline and air-gapped development** — the ONNX model runs locally and loads from cache first, so detection needs no network after the initial download.
-- **Demos and training** — use realistic examples without leaking live customer values into notebooks, slides, or recordings.
+### 1. Refactoring a Monolith Without Leaking Database Credentials
+
+**The scenario:** You ask your AI coding agent: *"Read our legacy `settings.py` and extract the database connection strings into our new PostgreSQL microservice config."*
+
+**The risk:** Raw database URLs containing a root password (for example, `postgres://admin:<raw-password>@prod-db.internal:5432/main`) get uploaded to the LLM's cloud logs.
+
+**How code-airlock stops it:**
+
+1. The agent calls `airlock_read_file("settings.py")`.
+2. code-airlock intercepts the read and replaces the URI password with `<AUTH_TOKEN_1>`.
+3. The agent refactors the codebase using `<AUTH_TOKEN_1>`.
+4. When saving the new microservice config, `airlock_write_file()` restores the real database password byte-exact on disk. The LLM never saw the raw credential.
+
+### 2. Running Integration Tests via an AI Agent Without stdout Leaks
+
+**The scenario:** You ask your agent: *"Write a Stripe webhook integration test and run pytest to make sure it passes."*
+
+**The risk:** Your pytest runner or test setup script crashes, outputting a full stack trace that prints the live `STRIPE_SECRET_KEY` value directly into the terminal—which the agent captures and streams back to its context window.
+
+**How code-airlock stops it:**
+
+1. The agent calls `airlock_exec(command=["pytest", "tests/test_stripe.py"], env_file=".env")`.
+2. code-airlock injects the real `.env` secrets into the child process memory so the test executes successfully.
+3. If pytest prints an error stack trace or environment dump containing the live Stripe key, `airlock_exec` automatically scrubs `stdout` and `stderr`, masking it back into `<API_KEY_1>` before returning the logs to the agent.
+
+### 3. Zero-Config Git Pre-Commit Guardrails for Team Repos
+
+**The scenario:** A junior developer (or an overzealous AI agent) writes a new feature, hardcodes an AWS `AKIA...` key or OpenAI `sk-proj-...` token into a test file, and types `git commit -m "add test helper"`.
+
+**The risk:** The secret gets committed to git history, forcing you to rotate keys and rewrite git logs.
+
+**How code-airlock stops it:**
+
+1. Running `python -m code_airlock init --pre-commit` drops a lightweight hook into `.git/hooks/pre-commit`.
+2. Whenever `git commit` runs, the hook executes `code-airlock scan --staged` in **0.20 ms**.
+3. If a secret is detected, it blocks the commit instantly and prints a masked preview (`file.py:12 -> [API_KEY] sk***45`), keeping your repository clean.
+
+### 4. Managing Company-Specific Internal Tokens via `.airlock.toml`
+
+**The scenario:** Your engineering team uses custom internal formats (like employee IDs `EMP-84920` or internal JIRA ticket keys `JIRA-4012`) that standard PII scanners might ignore or falsely flag as general text.
+
+**The risk:** Internal tickets or proprietary identifiers leak into third-party LLM logs.
+
+**How code-airlock stops it:**
+
+Add an `.airlock.toml` file in the repository root:
+
+```toml
+[custom_patterns]
+EMPLOYEE_ID = 'EMP-[0-9]{5}'
+INTERNAL_TICKET = 'JIRA-[0-9]{3,5}'
+```
+
+Stage 1 evaluates these custom rules locally in sub-milliseconds, converting them to `<EMPLOYEE_ID_1>` and `<INTERNAL_TICKET_1>` tokens in memory before any text reaches the LLM.
 
 All detection happens locally. The upstream model sees only tokens, and the vault restores the real values on your machine.
 
