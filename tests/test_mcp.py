@@ -198,7 +198,10 @@ def test_install_configures_all_harnesses_globally(tmp_path, monkeypatch):
     opencode.parent.mkdir(parents=True)
     opencode.write_text(json.dumps({
         "theme": "dark",
-        "mcp": {"rea": {"type": "local", "command": ["rea"]}},
+        "mcp": {
+            "servers": {"rea": {"type": "local", "command": ["rea"]}},
+            "timeout": {"startup": 45000},
+        },
     }), encoding="utf-8")
     claude = home / ".claude.json"
     claude.write_text(json.dumps({
@@ -215,15 +218,17 @@ def test_install_configures_all_harnesses_globally(tmp_path, monkeypatch):
 
     data = json.loads(opencode.read_text(encoding="utf-8"))
     assert data["theme"] == "dark"
-    assert data["mcp"]["rea"] == {"type": "local", "command": ["rea"]}
-    assert data["mcp"]["code-airlock"]["command"] == ["python", "-m", "code_airlock.mcp_server"]
+    assert data["mcp"]["timeout"] == {"startup": 45000}
+    assert data["mcp"]["servers"]["rea"] == {"type": "local", "command": ["rea"]}
+    assert data["mcp"]["servers"]["code-airlock"]["command"][1:] == ["-m", "code_airlock.mcp_server"]
+    assert "code-airlock" not in data["mcp"]
     data = json.loads(claude.read_text(encoding="utf-8"))
     assert data["keep"] is True
     assert data["mcpServers"]["rea"] == {"command": ["rea"]}
     assert data["mcpServers"]["code-airlock"]["args"] == ["-m", "code_airlock.mcp_server"]
     data = json.loads(cursor.read_text(encoding="utf-8"))
     assert data["mcpServers"]["rea"] == {"command": ["rea"]}
-    assert data["mcpServers"]["code-airlock"]["command"] == "python"
+    assert data["mcpServers"]["code-airlock"]["command"] == sys.executable
     for rule in (home / ".config" / "opencode" / "AGENTS.md", home / ".claude" / "CLAUDE.md"):
         assert rule.exists()
         assert cli.MARKER in rule.read_text(encoding="utf-8")

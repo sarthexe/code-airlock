@@ -40,7 +40,10 @@ def load_config(path: str | Path | None = None):
 
 
 def merge_mcp_config(path: str | Path, top_key: str, name: str, server: dict) -> tuple[Path, bool]:
-    """Merge one MCP server into a JSON file, preserving every other key and server."""
+    """Merge one MCP server into a JSON file, preserving every other key and server.
+
+    ``top_key`` may be a dotted path such as ``"mcp.servers"``.
+    """
     target = Path(path).expanduser()
     existed = target.is_file()
     data: dict = {}
@@ -51,13 +54,16 @@ def merge_mcp_config(path: str | Path, top_key: str, name: str, server: dict) ->
             raise ValueError(f"invalid JSON, left unchanged: {target}") from exc
         if not isinstance(data, dict):
             raise ValueError(f"top-level JSON is not an object, left unchanged: {target}")
-    servers = data.setdefault(top_key, {})
-    if not isinstance(servers, dict):
-        raise ValueError(f"'{top_key}' is not an object, left unchanged: {target}")
-    entry = servers.get(name)
+    container = data
+    for part in top_key.split("."):
+        child = container.setdefault(part, {})
+        if not isinstance(child, dict):
+            raise ValueError(f"'{top_key}' is not an object, left unchanged: {target}")
+        container = child
+    entry = container.get(name)
     entry = dict(entry) if isinstance(entry, dict) else {}
     entry.update(server)
-    servers[name] = entry
+    container[name] = entry
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return target, existed

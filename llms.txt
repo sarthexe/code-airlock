@@ -21,9 +21,11 @@ OpenCode (`~/.config/opencode/opencode.json`):
 ```json
 {
   "mcp": {
-    "code-airlock": {
-      "type": "local",
-      "command": ["python", "-m", "code_airlock.mcp_server"]
+    "servers": {
+      "code-airlock": {
+        "type": "local",
+        "command": ["python", "-m", "code_airlock.mcp_server"]
+      }
     }
   }
 }

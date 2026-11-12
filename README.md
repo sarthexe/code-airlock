@@ -46,9 +46,11 @@ claude mcp add code-airlock -- uvx code-airlock
 ```json
 {
   "mcp": {
-    "code-airlock": {
-      "type": "local",
-      "command": ["uvx", "code-airlock"]
+    "servers": {
+      "code-airlock": {
+        "type": "local",
+        "command": ["uvx", "code-airlock"]
+      }
     }
   }
 }
@@ -101,9 +103,11 @@ claude mcp add code-airlock -- python -m code_airlock.mcp_server
 ```json
 {
   "mcp": {
-    "code-airlock": {
-      "type": "local",
-      "command": ["python", "-m", "code_airlock.mcp_server"]
+    "servers": {
+      "code-airlock": {
+        "type": "local",
+        "command": ["python", "-m", "code_airlock.mcp_server"]
+      }
     }
   }
 }

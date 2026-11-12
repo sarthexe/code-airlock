@@ -74,7 +74,7 @@ def doctor(show_config: bool = True) -> int:
         return 1
     if show_config:
         print("\nOpenCode (~/.config/opencode/opencode.json):")
-        print('{"mcp": {"code-airlock": {"type": "local", "command": ["python", "-m", "code_airlock.mcp_server"]}}}')
+        print('{"mcp": {"servers": {"code-airlock": {"type": "local", "command": ["python", "-m", "code_airlock.mcp_server"]}}}}')
         print("\nCursor / Claude Code / Claude Desktop:")
         print(CONFIG)
     return 0
@@ -133,11 +133,11 @@ def install(target: str | None = None, home: Path | None = None, workspace: Path
     home = home or Path.home()
     workspace = workspace or Path.cwd()
     harnesses = list(HARNESSES) if target in (None, "all") else [target]
-    command = ["python", "-m", "code_airlock.mcp_server"]
-    spec = {"command": "python", "args": ["-m", "code_airlock.mcp_server"]}
+    command = [sys.executable, "-m", "code_airlock.mcp_server"]
+    spec = {"command": sys.executable, "args": ["-m", "code_airlock.mcp_server"]}
     configs, rules = [], []
     if "opencode" in harnesses:
-        configs.append((home / ".config" / "opencode" / "opencode.json", "mcp",
+        configs.append((home / ".config" / "opencode" / "opencode.json", "mcp.servers",
                         {"type": "local", "command": command}))
         rules.append(home / ".config" / "opencode" / "AGENTS.md")
     if "claude" in harnesses:
