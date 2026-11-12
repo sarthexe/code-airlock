@@ -11,6 +11,14 @@ HOOK = """#!/bin/sh
 # Installed by code-airlock
 python -m code_airlock scan --staged
 """
+CONFIG_TEMPLATE = """# code-airlock project configuration
+[allowlist]
+terms = ["MyInternalApp", "staging.corp.local"]
+
+[custom_patterns]
+# EMPLOYEE_ID = 'EMP-[0-9]{6}'
+# INTERNAL_TICKET = 'JIRA-[0-9]{4,6}'
+"""
 CONFIG = """{
   "mcpServers": {
     "code-airlock": {
@@ -48,7 +56,14 @@ def doctor() -> int:
     return 0
 
 
-def init(pre_commit: bool = False) -> int:
+def init(pre_commit: bool = False, config: bool = False) -> int:
+    if config:
+        config_path = Path.cwd() / ".airlock.toml"
+        if config_path.exists():
+            print("[ok] .airlock.toml already exists")
+        else:
+            config_path.write_text(CONFIG_TEMPLATE, encoding="utf-8")
+            print("[ok] created .airlock.toml")
     for name in (".cursorrules", "CLAUDE.md"):
         target = Path.cwd() / name
         existing = target.read_text(encoding="utf-8") if target.exists() else ""
@@ -83,6 +98,7 @@ def main() -> int:
     sub.add_parser("doctor", help="verify the model and print MCP configuration")
     init_cmd = sub.add_parser("init", help="add code-airlock rules and optional pre-commit hook")
     init_cmd.add_argument("--pre-commit", action="store_true", help="install .git/hooks/pre-commit")
+    init_cmd.add_argument("--config", action="store_true", help="create a starter .airlock.toml")
     scan_cmd = sub.add_parser("scan", help="scan files or staged changes for secrets")
     scan_cmd.add_argument("--staged", action="store_true", help="scan files staged in git")
     scan_cmd.add_argument("--deep", action="store_true", help="enable Stage 2 GLiNER detection")
@@ -99,7 +115,7 @@ def main() -> int:
     if args.command == "doctor":
         return doctor()
     if args.command == "init":
-        return init(args.pre_commit)
+        return init(args.pre_commit, args.config)
     if args.command == "scan":
         from .scanner import scan
         return scan(args.paths, staged=args.staged, deep=args.deep)

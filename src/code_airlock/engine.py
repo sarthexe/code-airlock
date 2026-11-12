@@ -2,6 +2,7 @@
 from __future__ import annotations
 import re
 from dataclasses import dataclass
+from .config import load_config
 
 @dataclass(frozen=True)
 class Span:
@@ -105,20 +106,18 @@ PERSON_STOPWORDS = frozenset({
 })
 
 CODE_CHARS = frozenset("_()[]{}:;/\\=$@")
-SCHEMA_WORDS = frozenset({"production", "development", "staging", "prod", "dev", "test", "localhost",
-    "api", "backend", "frontend", "database", "server", "client", "service", "origin",
-    "environment", "region", "payments", "config", "metadata"})
+SCHEMA_WORDS = frozenset({"production", "development", "staging", "prod", "dev", "test", "localhost", "api", "backend", "frontend", "database", "server", "client", "service", "origin", "environment", "region", "payments", "config", "metadata"})
 
-def stage2_ok(text: str, label: str) -> bool:
+def stage2_ok(text: str, label: str, allowlist: frozenset = TECH_ALLOWLIST) -> bool:
     """Reject Stage 2 drift on code identifiers, tech names, and role words."""
     t = text.strip()
     if len(t) <= 2: return False
     low = t.lower()
-    if low in TECH_ALLOWLIST or low in {"location", "organization", "person", "address", "user"}: return False
+    if low in allowlist or low in {"location", "organization", "person", "address", "user"}: return False
     if label in ("LOCATION", "ORGANIZATION") and low in SCHEMA_WORDS: return False
     if label == "LOCATION" and (re.fullmatch(r"[a-z]{2}(?:-[a-z]+)+-\d+", low) or any(w in low.split() for w in ("cluster", "node", "proxy", "channel", "region"))): return False
     if label == "ORGANIZATION" and re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)+", t): return False
-    if (label == "ORGANIZATION" and (low.endswith(" service") or low.replace(".", "") in TECH_ALLOWLIST)) or re.fullmatch(r"[A-Z]{2}\d{2}[A-Z0-9]{11,30}", t): return False
+    if (label == "ORGANIZATION" and (low.endswith(" service") or low.replace(".", "") in allowlist)) or re.fullmatch(r"[A-Z]{2}\d{2}[A-Z0-9]{11,30}", t): return False
     if label == "PERSON" and low in PERSON_STOPWORDS: return False
     if label == "PERSON" and " " not in t and (len(t) > 25 or any(c.isdigit() for c in t) or sum(c.isupper() for c in t) / len(t) > 0.5): return False
     if any(ch in CODE_CHARS for ch in t) or (any(c.isdigit() for c in t) and "." in t) or (label in ("LOCATION", "PERSON", "ORGANIZATION") and t.isdigit()): return False
@@ -165,6 +164,7 @@ class CascadeEngine:
         self.device = device
         self.model_name = model_name
         self.threshold = threshold
+        extra, self.custom_patterns = load_config(); self.allowlist = TECH_ALLOWLIST | extra
         self.label_map = {"person": "PERSON", "organization": "ORGANIZATION", "location": "LOCATION"}
         self._ner_model = None
         if not lazy: self._get_ner()
@@ -187,6 +187,7 @@ class CascadeEngine:
             if _secret_ok(m.group(1)): spans.append(Span(m.start(1), m.end(1), "AUTH_TOKEN", m.group(1), 1.0, "stage1"))
         for m in KV_SECRET_RE.finditer(text):
             if _secret_ok(m.group(1)): spans.append(Span(m.start(1), m.end(1), "API_KEY", m.group(1), 1.0, "stage1"))
+        for label, pat in self.custom_patterns.items(): spans.extend(Span(m.start(), m.end(), label, m.group(), 1.0, "stage1") for m in pat.finditer(text) if m.group().lower() not in self.allowlist)
         for m in PHONE_RE.finditer(text):
             if is_valid_phone(m.group()): spans.append(Span(m.start(), m.end(), "PHONE", m.group(), 1.0, "stage1"))
         for m in IPV4_CAND_RE.finditer(text):
@@ -208,12 +209,11 @@ class CascadeEngine:
         raw_spans: list[Span] = []
         for p in preds:
             lbl = self.label_map.get(p["label"], p["label"].upper())
-            if not stage2_ok(p["text"], lbl): continue
+            if not stage2_ok(p["text"], lbl, self.allowlist): continue
             raw_spans.append(Span(p["start"], p["end"], lbl, p["text"], float(p.get("score", 0.0)), "stage2"))
         resolved = _resolve_same_stage(raw_spans)
         resolved_sorted = sorted(resolved, key=lambda s: s.start)
         return merge_adjacent_locations(resolved_sorted, text)
 
     def detect(self, text: str, use_ner: bool = True) -> list[Span]:
-        stage1 = self.detect_stage1(text)
-        return merge_spans(stage1, self.detect_stage2(text)) if use_ner else stage1
+        stage1 = self.detect_stage1(text); return merge_spans(stage1, self.detect_stage2(text)) if use_ner else stage1

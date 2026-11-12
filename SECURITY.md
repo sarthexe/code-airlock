@@ -42,6 +42,9 @@ fix and coordinated disclosure before publishing details.
   refused.
 - `code-airlock scan --staged` gates the five highest-risk secret categories in
   Git hooks and CI; output is masked and the command exits non-zero on findings.
+- `airlock_exec` runs subprocesses with `shell=False`, blocks shells and
+  destructive executables, injects `.env` values into the child environment,
+  and scrubs stdout/stderr before returning them to the model.
 - Known gaps include contextual SaaS tokens (e.g. some Heroku/Mailchimp
   formats), PEM bodies beyond the header line, and statistical NER misses.
 

@@ -4,6 +4,7 @@ import os, re, time
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 from .engine import CascadeEngine
+from .executor import run_command
 from .sanitizer import VaultSession, TOKEN_VARIANT_RE as TOKEN_RE
 
 mcp = FastMCP("code-airlock")
@@ -55,6 +56,12 @@ def airlock_dehydrate(text: str) -> dict:
 def airlock_scrub_text(text: str, use_ner: bool = True) -> dict:
     """Scrub arbitrary in-memory text, optionally with Stage-1-only speed."""
     return _dehydrate(text, use_ner=use_ner)
+
+
+@mcp.tool()
+def airlock_exec(command: list[str], env_file: str = "") -> dict:
+    """Run a guarded subprocess with vault-injected env and scrubbed output."""
+    return run_command(command, env_file, ENGINE, VAULT, _validate_path)
 
 
 @mcp.tool()

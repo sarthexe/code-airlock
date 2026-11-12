@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from .engine import CascadeEngine
 from .sanitizer import StreamRehydrator, VaultSession
 
-app = FastAPI(title="code-airlock", version="1.2.0")
+app = FastAPI(title="code-airlock", version="1.3.0")
 engine = CascadeEngine()
 UPSTREAM = os.getenv("AIRLOCK_UPSTREAM_URL", "").rstrip("/")
 LAST_OUTBOUND: dict = {}

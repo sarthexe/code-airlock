@@ -25,6 +25,11 @@ class VaultSession:
     def __str__(self) -> str:
         return self.__repr__()
 
+    @property
+    def reverse_map(self) -> dict[str, str]:
+        """Raw value -> token map for output scrubbing; never include in logs."""
+        return {val: tok for (_, val), tok in self.forward_map.items() if val}
+
     def _get_or_create_token(self, label: str, val: str) -> str:
         key = (label, val)
         if key in self.forward_map:

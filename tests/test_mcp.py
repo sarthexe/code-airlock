@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from code_airlock import __main__ as cli
 from code_airlock import mcp_server as airlock
+from code_airlock.engine import CascadeEngine, stage2_ok
 
 OPENAI = "sk-abcdefghijklmnopqrstuvwxyz123456"
 AWS = "AKIAIOSFODNN7EXAMPLE"
@@ -14,6 +15,7 @@ EMAIL = "ops@northwind.example"
 @pytest.fixture(autouse=True)
 def fresh_vault(monkeypatch):
     monkeypatch.delenv("AIRLOCK_WORKSPACE", raising=False)
+    monkeypatch.delenv("AIRLOCK_CONFIG", raising=False)
     airlock.VAULT = airlock.VaultSession()
     yield
 
@@ -138,8 +140,42 @@ def test_init_installs_pre_commit_hook(tmp_path, monkeypatch):
     repo = tmp_path / "repo"
     (repo / ".git" / "hooks").mkdir(parents=True)
     monkeypatch.chdir(repo)
-    monkeypatch.setattr(sys, "argv", ["code-airlock", "init", "--pre-commit"])
+    monkeypatch.setattr(sys, "argv", ["code-airlock", "init", "--pre-commit", "--config"])
     assert cli.main() == 0
     hook = repo / ".git" / "hooks" / "pre-commit"
     assert hook.exists()
     assert "python -m code_airlock scan --staged" in hook.read_text(encoding="utf-8")
+    assert (repo / ".airlock.toml").exists()
+
+
+def test_airlock_exec_injects_and_scrubs(tmp_path):
+    stripe = "sk_live_" + "testexecsecret1234567890abcd"
+    env = tmp_path / ".env"
+    env.write_text(f"STRIPE_SECRET_KEY={stripe}\n", encoding="utf-8")
+    command = [sys.executable, "-c", "import os; print(os.environ['STRIPE_SECRET_KEY'])"]
+    result = airlock.airlock_exec(command, str(env))
+    assert result["exit_code"] == 0
+    assert stripe not in result["stdout"]
+    assert "<API_KEY_1>" in result["stdout"]
+    assert airlock.VAULT.vault["<API_KEY_1>"] == stripe
+
+
+def test_airlock_exec_blocks_shell():
+    with pytest.raises(ValueError, match="disallowed"):
+        airlock.airlock_exec(["bash", "-c", "echo hi"])
+
+
+def test_airlock_toml_custom_patterns_and_allowlist(tmp_path, monkeypatch):
+    (tmp_path / ".airlock.toml").write_text(
+        "[allowlist]\nterms = [\"MyInternalApp\"]\n"
+        "[custom_patterns]\nEMPLOYEE_ID = 'EMP-[0-9]{6}'\n"
+        "INTERNAL_TICKET = 'JIRA-[0-9]{4,6}'\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    engine = CascadeEngine()
+    spans = engine.detect("MyInternalApp EMP-123456 and JIRA-4567", use_ner=False)
+    labels = {s.label for s in spans}
+    assert {"EMPLOYEE_ID", "INTERNAL_TICKET"} <= labels
+    assert stage2_ok("MyInternalApp", "ORGANIZATION", engine.allowlist) is False
+    vault = airlock.VaultSession()
+    sanitized, _ = vault.dehydrate("MyInternalApp EMP-123456 and JIRA-4567", spans)
+    assert "<EMPLOYEE_ID_1>" in sanitized
