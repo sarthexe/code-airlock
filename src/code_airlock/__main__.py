@@ -27,6 +27,29 @@ CONFIG = """{
     }
   }
 }"""
+RULE_FILES = {"opencode": "AGENTS.md", "claude": "CLAUDE.md", "cursor": ".cursorrules"}
+HARNESSES = tuple(RULE_FILES)
+
+
+def _detect_harness(explicit_target: str | None = None) -> list[str]:
+    """Resolve the active coding harness from a flag, its environment, or local footprints."""
+    if explicit_target:
+        return list(HARNESSES) if explicit_target == "all" else [explicit_target]
+    if os.environ.get("OPENCODE") or os.environ.get("OPENCODE_VERSION") or os.environ.get("OPENCODE_CONFIG_DIR"):
+        return ["opencode"]
+    if os.environ.get("CLAUDECODE") or os.environ.get("CLAUDE_CODE_ENTRYPOINT"):
+        return ["claude"]
+    if os.environ.get("CURSOR_TRACE_ID") or (os.environ.get("VSCODE_PID") and Path(".cursor").exists()):
+        return ["cursor"]
+    cwd, home = Path.cwd(), Path.home()
+    found = []
+    if (cwd / "opencode.json").exists() or (cwd / ".opencode").exists() or (home / ".config" / "opencode").exists():
+        found.append("opencode")
+    if (cwd / "CLAUDE.md").exists() or (cwd / ".claude").exists() or (cwd / ".mcp.json").exists() or (home / ".claude").exists():
+        found.append("claude")
+    if (cwd / ".cursor").exists() or (cwd / ".cursorrules").exists() or (home / ".cursor").exists():
+        found.append("cursor")
+    return found or list(HARNESSES)
 
 
 def doctor(show_config: bool = True) -> int:
@@ -57,7 +80,8 @@ def doctor(show_config: bool = True) -> int:
     return 0
 
 
-def init(pre_commit: bool = False, config: bool = False) -> int:
+def init(pre_commit: bool = False, config: bool = False, targets: list[str] | None = None) -> int:
+    targets = targets or _detect_harness()
     if config:
         config_path = Path.cwd() / ".airlock.toml"
         if config_path.exists():
@@ -65,7 +89,8 @@ def init(pre_commit: bool = False, config: bool = False) -> int:
         else:
             config_path.write_text(CONFIG_TEMPLATE, encoding="utf-8")
             print("[ok] created .airlock.toml")
-    for name in (".cursorrules", "CLAUDE.md"):
+    for harness in targets:
+        name = RULE_FILES[harness]
         target = Path.cwd() / name
         existing = target.read_text(encoding="utf-8") if target.exists() else ""
         if MARKER in existing:
@@ -91,30 +116,37 @@ def init(pre_commit: bool = False, config: bool = False) -> int:
     return 0
 
 
-def install(project: bool = True, home: Path | None = None, workspace: Path | None = None,
+def install(target: str | None = None, home: Path | None = None, workspace: Path | None = None,
             check: bool = True) -> int:
-    """Register the MCP server in agent configs, initialize guardrails, and warm up the model."""
+    """Register the MCP server for the detected harness, initialize guardrails, and warm up."""
     from .config import merge_mcp_config
     home = home or Path.home()
     workspace = workspace or Path.cwd()
+    harnesses = _detect_harness(target)
     command = [sys.executable, "-m", "code_airlock.mcp_server"]
-    targets = [(home / ".config" / "opencode" / "opencode.json", "mcp",
-                {"type": "local", "command": command})]
-    if project:
-        cursor = {"command": sys.executable, "args": ["-m", "code_airlock.mcp_server"]}
-        targets += [(workspace / ".cursor" / "mcp.json", "mcpServers", cursor),
-                    (workspace / ".mcp.json", "mcpServers", cursor)]
+    spec = {"command": sys.executable, "args": ["-m", "code_airlock.mcp_server"]}
+    targets = []
+    if "opencode" in harnesses:
+        targets.append((home / ".config" / "opencode" / "opencode.json", "mcp",
+                        {"type": "local", "command": command}))
+        project = workspace / "opencode.json"
+        if project.exists():
+            targets.append((project, "mcp", {"type": "local", "command": command}))
+    if "claude" in harnesses:
+        targets.append((workspace / ".mcp.json", "mcpServers", spec))
+    if "cursor" in harnesses:
+        targets.append((workspace / ".cursor" / "mcp.json", "mcpServers", spec))
     failed = 0
-    print("[ok] registering code-airlock MCP server")
+    print(f"[ok] Detected harness: {', '.join(harnesses)}")
     for path, top_key, server in targets:
         try:
-            target, existed = merge_mcp_config(path, top_key, "code-airlock", server)
-            print(f"[ok] {'updated' if existed else 'created'}: {target}")
+            updated, existed = merge_mcp_config(path, top_key, "code-airlock", dict(server))
+            print(f"[ok] {'updated' if existed else 'created'}: {updated}")
         except (OSError, ValueError) as exc:
             failed = 1
             print(f"[fail] {exc}")
     if check:
-        failed |= init(pre_commit=True, config=True)
+        failed |= init(pre_commit=True, config=True, targets=harnesses)
         failed |= doctor(show_config=False)
     print("\nRestart your agent to load the code-airlock tools.")
     return 1 if failed else 0
@@ -129,12 +161,9 @@ def main() -> int:
     init_cmd = sub.add_parser("init", help="add code-airlock rules and optional pre-commit hook")
     init_cmd.add_argument("--pre-commit", action="store_true", help="install .git/hooks/pre-commit")
     init_cmd.add_argument("--config", action="store_true", help="create a starter .airlock.toml")
+    init_cmd.add_argument("--target", choices=(*HARNESSES, "all"), help="harness to initialize (default: auto-detect)")
     install_cmd = sub.add_parser("install", help="register agent configs, initialize guardrails, and warm up the model")
-    install_group = install_cmd.add_mutually_exclusive_group()
-    install_group.add_argument("--project", dest="project", action="store_true", default=True,
-                               help="write .cursor/mcp.json and .mcp.json (default)")
-    install_group.add_argument("--no-project", dest="project", action="store_false",
-                               help="skip project MCP configs")
+    install_cmd.add_argument("--target", choices=(*HARNESSES, "all"), help="harness to configure (default: auto-detect)")
     scan_cmd = sub.add_parser("scan", help="scan files or staged changes for secrets")
     scan_cmd.add_argument("--staged", action="store_true", help="scan files staged in git")
     scan_cmd.add_argument("--deep", action="store_true", help="enable Stage 2 GLiNER detection")
@@ -151,9 +180,9 @@ def main() -> int:
     if args.command == "doctor":
         return doctor()
     if args.command == "init":
-        return init(args.pre_commit, args.config)
+        return init(args.pre_commit, args.config, _detect_harness(args.target))
     if args.command == "install":
-        return install(args.project)
+        return install(args.target)
     if args.command == "scan":
         from .scanner import scan
         return scan(args.paths, staged=args.staged, deep=args.deep)

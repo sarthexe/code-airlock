@@ -8,7 +8,7 @@
 pip install -U code-airlock && python -m code_airlock install
 ```
 
-This warms up the local ONNX model, merges the MCP server into existing OpenCode / Cursor / Claude Code configs without deleting other servers, writes `.cursorrules`, `CLAUDE.md`, and `.airlock.toml`, and installs the Git pre-commit hook inside a repository. Restart the agent afterward.
+This auto-detects the active harness from agent environment variables or project footprints, warms up the local ONNX model, merges the MCP server into only that harness's config without deleting other servers, writes the matching instruction file (`AGENTS.md` for OpenCode, `CLAUDE.md` for Claude Code, `.cursorrules` for Cursor), creates `.airlock.toml`, and installs the Git pre-commit hook inside a repository. Override detection with `--target opencode|claude|cursor|all`. Restart the agent afterward.
 
 ## Agent instructions
 
