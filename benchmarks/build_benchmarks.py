@@ -60,7 +60,6 @@ def person(): return f"{R.choice(FIRST)} {R.choice(LAST)}"
 def org(): return R.choice(ORGS)
 def loc(): return R.choice(CITIES)[0]
 def jwt(): return f"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyMTIzIn0.{a(24)}"
-def pem(): return f"-----BEGIN RSA PRIVATE KEY-----\n{a(48)}\n-----END RSA PRIVATE KEY-----"
 
 def api():
     return R.choice([
