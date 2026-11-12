@@ -28,6 +28,9 @@ secrets.out.json
 opencode.json
 .opencode/
 
+# Generated architecture map
+floorplan/
+
 # Editors and OS
 .idea/
 .vscode/
