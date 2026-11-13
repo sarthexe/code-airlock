@@ -263,3 +263,14 @@ def test_mcp_handshake_includes_airlock_instructions():
     instructions = airlock.mcp.instructions
     for tool in ("airlock_read_file", "airlock_write_file", "airlock_exec", "airlock_scrub_text"):
         assert tool in instructions
+
+
+def test_mcp_tool_schemas_have_descriptions_and_annotations():
+    tools = airlock.mcp._tool_manager.list_tools()
+    assert len(tools) == 7
+    for tool in tools:
+        assert tool.annotations is not None, tool.name
+        assert tool.annotations.readOnlyHint is not None, tool.name
+        assert tool.annotations.title, tool.name
+        for name, schema in tool.parameters.get("properties", {}).items():
+            assert schema.get("description"), f"{tool.name}.{name} is missing a description"
