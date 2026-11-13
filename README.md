@@ -7,6 +7,8 @@
 
 [![code-airlock MCP server – quality and maintenance score on Glama](https://glama.ai/mcp/servers/sarthexe/code-airlock/badges/card.svg)](https://glama.ai/mcp/servers/sarthexe/code-airlock)
 
+[![code-airlock MCP server – quality and maintenance score on Glama](https://glama.ai/mcp/servers/sarthexe/code-airlock/badges/score.svg)](https://glama.ai/mcp/servers/sarthexe/code-airlock)
+
 **Zero-trust PII & secret airlock for AI coding agents (Claude Code, OpenCode, Cursor, Windsurf, Cline).**
 
 `code-airlock` sits between your local codebase and LLM agents as both a **FastMCP Server** and an **OpenAI-compatible SSE Proxy**. It replaces live API keys, database passwords, and PII with reversible, session-consistent placeholders (`<API_KEY_1>`, `<AUTH_TOKEN_1>`, `<PERSON_1>`) before text enters LLM context—and restores them byte-exact on disk or inside child test processes without the AI ever seeing the raw values.
