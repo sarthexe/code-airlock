@@ -4,6 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Benchmark](https://img.shields.io/badge/Benchmark-100%25%20Recall%20%2F%20Precision-brightgreen)](https://huggingface.co/datasets/sarthexe/pii-airlock-bench)
 [![Runtime](https://img.shields.io/badge/Runtime-Pure%20ONNX%20(Zero--Torch)-orange)](#architecture)
+[![code-airlock MCP server – quality and maintenance score on Glama](https://glama.ai/mcp/servers/sarthexe/code-airlock/badges/score.svg)](https://glama.ai/mcp/servers/sarthexe/code-airlock)
 
 **Zero-trust PII & secret airlock for AI coding agents (Claude Code, OpenCode, Cursor, Windsurf, Cline).**
 
