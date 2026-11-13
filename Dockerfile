@@ -1,10 +1,12 @@
-FROM python:3.11-slim
+FROM python:3.12-slim
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 WORKDIR /app
 
 COPY pyproject.toml README.md ./
 COPY src/ ./src/
 
-RUN pip install --no-cache-dir .
+RUN uv pip install --system --no-cache .
 
-ENTRYPOINT ["code-airlock-mcp"]
+ENTRYPOINT ["python", "-m", "code_airlock.mcp_server"]
